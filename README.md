@@ -1,158 +1,280 @@
-# AdvisorFlow AI
+# SignalNex
 
-AI assistant for insurance agents in the AAG x ASG ImagineHack 2026 Track 1 challenge.
+> From scattered client signals to governed advisor action.
 
-> Turn existing client data into daily priorities and ready-to-send actions.
+**SignalNex** is an AI-powered advisory command centre built for the **AAG x ASG ImagineHack 2026 — Track 1** challenge. It transforms fragmented client data into prioritised daily actions, intelligent partner referrals, and compliance-governed workflows — helping insurance and financial advisors know **who to contact first, what to say next, which partner to involve, and what guardrail to check before action.**
 
-## 1. What This Project Is
+---
 
-AdvisorFlow AI is a demo-ready agent assistant for insurance and advisory teams. It helps agents answer four daily questions:
+## Team
 
-1. Which client needs attention first?
-2. Why is this client important right now?
-3. What should I do or say next?
-4. What consent or compliance guardrail must be checked before action?
+**Team Name:** UniCampur
 
-The prototype is built as a local React/Vite web app with seeded data and deterministic rule-based logic. It does not call a live AI API, does not use secret credentials, and does not contain real client records.
+| # | Name |
+|---|------|
+| 1 | Heng Yong An Damian |
+| 2 | Chin Lok Bin |
+| 3 | Chan Hao Hean |
+| 4 | Hoh Wen Hao |
 
-## 2. Track 1 Alignment
+---
 
-The Track 1 opportunity is advisor productivity, client service quality, and sustainable growth. AdvisorFlow AI targets that opportunity by combining:
+## Technologies Used
 
-- Client prioritization
-- Ready-to-send WhatsApp/email style prompts
-- Client context and relationship notes
-- Follow-up/task visibility
-- Just-in-time CPD recommendations
-- Consent-aware governance
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 18, Vite 5 |
+| Backend / Database | Supabase (PostgreSQL, Auth, Edge Functions, Row-Level Security) |
+| AI / LLM | OpenAI GPT-4o-mini (Smart Learning Path, Knowledge Gap Detection, Client Suggestions) |
+| Messaging Integration | Telegram Bot API (via Supabase Edge Functions) |
+| Language | JavaScript (ES Modules) |
+| Styling | Vanilla CSS (custom design system) |
 
-The key positioning is simple:
+---
 
-Agents do not only need another CRM screen. They need an affordable AI assistant that tells them who to contact, why, and what to say.
+## Challenge and Approach
 
-## 3. Skeleton Status
+### The Problem
 
-This repo currently contains a polished hackathon prototype:
+Advisors manage dozens of daily signals — policy reviews, missed premiums, client life events, business changes, partner opportunities, CPD needs, and compliance requirements. This information is typically scattered across CRM notes, calendars, messages, spreadsheets, and personal memory.
 
-- React/Vite dashboard shell
-- Agent assistant workspace
-- Seeded advisor, client, meeting, task, event, compliance, CPD, and audit data
-- Rule-based engine functions for scoring, briefs, recommendations, draft generation, and compliance risk
-- Responsive modern interface
-- Local-only runtime with no external API dependency
+The result:
+- Slower client follow-up and missed high-value opportunities
+- Inconsistent partner referrals across AAG / ASG business units
+- Late compliance and consent checks
+- Higher dependence on advisor memory over structured intelligence
 
-## 4. Run Locally
 
-```powershell
-npm.cmd install
-npm.cmd run dev
+### Features Delivered
+
+We successfully delivered the following fully functional features in our prototype to solve this problem:
+
+**Productivity Features:**
+- **Daily Advisor Morning Brief**: Summarises top priority clients, overnight signals, overdue tasks, and upcoming meetings.
+- **Client Priority Queue**: Automatically ranks the client book based on urgency, premium value, propensity, and open tasks.
+- **Client Memory & AI Behavioural Profile**: AI-generated summary of the client's interests, life events, and optimal communication channels.
+- **Telegram Bot Integration**: Governed action composer to generate and send compliant client messages directly from the dashboard.
+
+**Growth Features:**
+- **Automated Partner Matching**: Connects client needs to AAG/ASG partners (e.g., SME Risk Solutions, Tax Advisory) with match scores.
+- **Referral Pipeline Tracker**: Visualises open referrals with expected revenue value and stage progression (Identify → Engage → Closed).
+
+**Learning Features:**
+- **Smart Learning Path**: OpenAI-powered recommendation engine that suggests CPD modules based on the advisor's portfolio density.
+- **Real-Time Knowledge Gap Detection**: Scans advisor notes to detect compliance or knowledge gaps and automatically assigns rapid micro-learning modules.
+- **Knowledge Gate Quizzes**: Scenario-based quizzes contextualised to the advisor's real client book to test applied knowledge.
+
+**Governance Features:**
+- **PDPA Consent Masking**: Automatically detects expired consent, masks private client details, and completely blocks follow-ups or referrals until renewed.
+- **Compliance Risk Scoring**: Flags accounts with missed premiums or high service risk before recommendations are made.
+- **Dual-Role Admin Dashboard**: A separate workspace for Admins to review compliance queues, flag expenses, and monitor a real-time audit trail of all advisor actions.
+
+### Our Approach
+
+SignalNex addresses these gaps through **four integrated layers**:
+
+1. **Productivity Layer** — AI-ranked client priority queue, morning brief, next-best-action engine, and Telegram-powered action composer so advisors know exactly who to contact and what to say.
+
+2. **Growth Layer** — Automated partner desk matching (ASG Tax Advisory, AAG Estate Concierge, SME Risk Solutions, etc.), referral pipeline tracking with stage progression, and revenue impact visibility.
+
+3. **Learning Layer** — Adaptive CPD system with portfolio-density analysis, real-time knowledge gap detection from advisor notes, AI-recommended learning paths, and Knowledge Gate quizzes contextualised to the advisor's actual client book.
+
+4. **Governance Layer** — PDPA consent masking that blocks all private workflows until consent is verified, compliance risk scoring, admin review queues, expense flagging, and a full audit trail visible to both advisor and admin roles.
+
+### Key Differentiators
+
+- **Signal-to-Action Pipeline**: We don't just show data — we rank, recommend, draft, and govern the action.
+- **Consent-Locked Clients**: Private signals are masked, follow-ups are blocked, and referrals are prevented until PDPA consent is verified — proving real privacy-by-design thinking.
+- **Dual-Role Experience**: Advisors and Admins each get a purpose-built workspace from a single login.
+- **Relationship Intelligence**: Client Memory, AI Behavioural Profile, care moment detection (birthdays, life events, service risks), and personalised gift/meeting recommendations.
+- **Live Supabase Backend**: Real authentication, real-time data, row-level security, and Edge Functions — not just a static frontend demo.
+
+---
+
+## Usage Instructions
+
+### Prerequisites
+
+- Node.js (v18+)
+- npm
+
+### Quick Start
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/Kisryo/ImagineHack.git
+cd ImagineHack
+
+# 2. Switch to the project branch
+git checkout Wenhao
+
+# 3. Install dependencies
+npm install
+
+# 4. Start the development server
+npm run dev
 ```
 
-Open the local Vite URL shown in the terminal. Usually:
+Open the local URL shown in the terminal (usually `http://localhost:5173/`).
 
-```text
-http://127.0.0.1:5173/
-```
+### Environment Setup
 
-Build verification:
-
-```powershell
-npm.cmd run build
-```
-
-Use `npm.cmd` on Windows PowerShell if direct `npm` execution is blocked.
-
-## 4.1 Connect Supabase
-
-The app still works with seeded frontend data if Supabase is not configured.
-To connect the Advisor Today screen to your Supabase tables:
-
-1. Run `supabase/schema.sql` in Supabase SQL Editor.
-2. Run `supabase/seed.sql` in Supabase SQL Editor.
-3. Copy `.env.example` to `.env.local`.
-4. Fill in your Supabase project URL and anon public key:
+Create a `.env.local` file in the project root:
 
 ```env
-VITE_SUPABASE_URL=your_project_url
-VITE_SUPABASE_ANON_KEY=your_anon_public_key
+VITE_SUPABASE_URL=your_supabase_project_url
+VITE_SUPABASE_PUBLISHABLE_KEY=your_supabase_anon_key
+VITE_ALLOW_LOCAL_FALLBACK=false
+VITE_OPENAI_API_KEY=your_openai_api_key
 ```
 
-5. Restart `npm.cmd run dev`.
+### Demo Flow (5–7 minutes)
 
-The Advisor Today page will show a **Backend Connection** panel. If connected,
-it reads:
+1. **Sign in** as Advisor Alex Lim (Senior) via Supabase Auth.
+2. **HomePage** — View the AI morning brief, overnight signals, and priority action cards.
+3. **Client Priority Queue** — See AI-ranked clients with tier badges, value scores, and priority signals.
+4. **Select Mr. Tan** — Explore Client Memory, AI Behavioural Profile, relationship suggestions (gift + meeting), and compliance risk.
+5. **Action Workspace** — Use the Telegram Bot Console to compose, preview, and send a governed message. Watch care moments get marked as done and follow-ups get logged automatically.
+6. **Consent-Locked Client** — Show how private data is masked and all actions are blocked until consent is refreshed.
+7. **Partners Hub** — View partner desk matching, referral pipeline stages, and revenue impact.
+8. **Learning** — Switch between Senior (Alex Lim) and Novice (Maya Singh) to demonstrate adaptive CPD, portfolio-density analysis, knowledge gap detection, and Knowledge Gate quizzes.
+9. **Sign out and sign in as Admin Nadia Wong** — Show the admin dashboard with managed premium, compliance queue, expense review, referral oversight, and audit logs.
 
-- `client_priority_queue`
-- `daily_action_suggestions`
+---
 
-If env vars are missing or Supabase fails, the app falls back to seeded demo
-data.
+## Tech Stack & Architecture Diagram
 
-## 5. Current Demo Flow
+### System Architecture
 
-Recommended 3 to 5 minute flow:
+```mermaid
+graph TB
+    subgraph Client["🖥️ Client Browser"]
+        UI["React 18 SPA"]
+        Vite["Vite 5 Dev Server"]
+    end
 
-1. Open AdvisorFlow AI as Agent Alex.
-2. Show Today: top clients, priority reasons, and ready-to-send action cards.
-3. Use Mr. Tan to show birthday/renewal/follow-up automation from existing client data.
-4. Open Client Assistant to show context, evidence, and next-best action.
-5. Use Follow-Ups to create or complete a task.
-6. Open the consent-locked client to show masking and consent-safe blocking.
-7. Open Learning to show just-in-time CPD recommendations.
-8. Close with the business story: agents save time, clients receive more timely personal attention, and risky actions are blocked.
+    subgraph Frontend["📦 Frontend Application"]
+        App["App.jsx<br/>Main Shell & Routing"]
+        Engines["engines.js<br/>Deterministic Engines"]
+        Learning["LearningFeature.jsx<br/>Adaptive CPD System"]
+        Data["data.js<br/>Seed Data & Fallbacks"]
+        Styles["styles.css<br/>Design System"]
+    end
 
-## 6. Shipped Prototype Features
+    subgraph AI["🤖 AI Layer"]
+        OpenAI["OpenAI GPT-4o-mini"]
+        OAIService["openaiService.js"]
+    end
 
-- Agent assistant workspace
-- Today assistant brief
-- Priority client ranking
-- Client context panel
-- Client assistant brief
-- Evidence-backed next-best actions
-- Ready-to-send action cards
-- Follow-up and compliance message assistant
-- Consent-lock masking
-- CPD recommendation panel
-- Task creation and completion
-- Supabase-backed priority queue and daily action suggestions
-- Local deterministic engines with no external API calls
+    subgraph Backend["☁️ Supabase Backend"]
+        Auth["Supabase Auth<br/>Email/Password"]
+        DB["PostgreSQL Database<br/>Row-Level Security"]
+        Edge["Edge Functions<br/>Telegram Bot API"]
+        RLS["RLS Policies<br/>Advisor-Scoped Data"]
+    end
 
-## 7. Data And Logic Map
+    subgraph External["🔗 External Services"]
+        Telegram["Telegram Bot API<br/>Client Messaging"]
+    end
 
-- `src/data.js` contains seeded demo data.
-- `src/engines.js` contains deterministic scoring and recommendation logic.
-- `src/App.jsx` contains the main agent assistant experience.
-- `src/styles.css` contains the interface styling and responsive layout.
+    UI --> App
+    Vite --> UI
+    App --> Engines
+    App --> Learning
+    App --> Data
+    App --> Styles
+    Learning --> OAIService
+    App --> OAIService
+    OAIService --> OpenAI
+    App --> Auth
+    App --> DB
+    App --> Edge
+    DB --> RLS
+    Edge --> Telegram
+```
 
-Important engine outputs include:
+### Data Flow
 
-- `scoreClient`
-- `getPriorityClients`
-- `buildClientBrief`
-- `recommendActions`
-- `generateDraft`
-- `scoreCompliance`
-- `summarizeBusinessImpact`
-- `buildMorningBrief`
+```mermaid
+flowchart LR
+    subgraph Signals["📡 Input Signals"]
+        S1["CRM Events"]
+        S2["Billing Alerts"]
+        S3["Life Events"]
+        S4["Consent Ledger"]
+        S5["Advisor Notes"]
+    end
 
-## 8. AI Tool Attribution
+    subgraph Engine["⚙️ SignalNex Engine"]
+        Score["Priority Scoring"]
+        Brief["Morning Brief"]
+        NBA["Next-Best Actions"]
+        Draft["Draft Composer"]
+        Partner["Partner Matching"]
+        Compliance["Compliance Risk"]
+        CPD["Adaptive CPD"]
+    end
 
-This prototype was upgraded with AI-assisted coding in Codex. AI support was used to expand the seeded data, structure the demo workflow, write deterministic AI-style engine logic, improve the interface, and create competition documentation.
+    subgraph Output["📤 Governed Output"]
+        O1["Ranked Client Queue"]
+        O2["Action Cards"]
+        O3["Telegram Messages"]
+        O4["Partner Referrals"]
+        O5["Audit Trail"]
+    end
 
-The runtime app itself does not call an AI model or external API. Its recommendations are generated from local seeded data and rule-based logic.
+    Signals --> Engine --> Output
+```
 
-## 9. Production Path
+### Detailed Tech Stack
 
-To turn this into a real system:
+| Category | Technology | Purpose |
+|----------|-----------|---------|
+| **Frontend Framework** | React 18 | Component-based UI with hooks and state management |
+| **Build Tool** | Vite 5 | Fast HMR development and optimised production builds |
+| **Styling** | Vanilla CSS | Custom design system with CSS variables, responsive grid, and micro-animations |
+| **Database** | Supabase PostgreSQL | Persistent storage with Row-Level Security for advisor-scoped data isolation |
+| **Authentication** | Supabase Auth | Email/password authentication with role-based access (Advisor / Admin) |
+| **Serverless Functions** | Supabase Edge Functions | Telegram Bot message delivery and server-side processing |
+| **AI / LLM** | OpenAI GPT-4o-mini | Smart Learning Path, Knowledge Gap Detection, AI Client Suggestions |
+| **Messaging** | Telegram Bot API | Governed client communication channel with audit logging |
+| **Deterministic Engines** | Custom JavaScript | Priority scoring, client brief, compliance risk, partner matching, CPD recommendation, care moment detection, business impact summarisation |
+| **Language** | JavaScript (ES Modules) | Full-stack JavaScript for consistency across frontend and backend |
 
-1. Add Firebase Authentication or Supabase Auth.
-2. Add persistent database collections for users, clients, policies, events, tasks, generated messages, learning content, consent requests, and audit logs.
-3. Enforce advisor-owned data queries on the server.
-4. Move recommendation logic to secure backend functions.
-5. Add real audit persistence.
-6. Connect approved integrations for CRM imports, email, WhatsApp draft handoff, and PDF/CSV reporting.
-7. Add a real AI model only behind strict consent, logging, prompt controls, and human advisor approval.
+---
 
-## 10. Security Note
+## Project Structure
 
-This is a local hackathon prototype. Do not deploy it publicly with real client data until authentication, authorization, database security rules, audit persistence, and server-side access checks are implemented.
+```
+├── index.html                 # Entry point
+├── src/
+│   ├── App.jsx                # Main application (all routes, components, state)
+│   ├── LearningFeature.jsx    # Adaptive CPD & Learning Loop
+│   ├── data.js                # Seeded demo data (advisors, clients, modules, etc.)
+│   ├── engines.js             # Deterministic scoring, matching, and recommendation engines
+│   ├── openaiService.js       # OpenAI integration (learning path, gap detection, suggestions)
+│   ├── styles.css             # Full design system and responsive layout
+│   ├── services/
+│   │   └── advisorFlowService.js  # Supabase data layer and auth
+│   └── supabaseClient.js      # Supabase client initialisation
+├── supabase/
+│   ├── schema.sql             # Database schema
+│   ├── seed.sql               # Demo data seeding
+│   └── verify-setup.sql       # Setup verification queries
+├── package.json
+└── .env.local                 # Environment variables (not committed)
+```
+
+---
+
+## AI Tool Attribution
+
+This prototype was developed with AI-assisted coding support. AI tools were used to expand seeded data, structure the demo workflow, write deterministic engine logic, improve the interface, and create competition documentation.
+
+The runtime application uses OpenAI GPT-4o-mini for three specific features: Smart Learning Path recommendations, Knowledge Gap Detection, and Client Suggestion generation. All other recommendations are generated from local deterministic rule-based engines.
+
+---
+
+## License
+
+This project was built for the AAG x ASG ImagineHack 2026 hackathon.
