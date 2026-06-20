@@ -34,6 +34,7 @@ import {
   createReferralRow,
   createTaskRow,
   getFallbackData,
+  sendTelegramMessage,
   signInAdvisorFlow,
   signOutAdvisorFlow,
 } from "./services/advisorFlowService.js";
@@ -149,6 +150,7 @@ function App() {
   const [followUpText, setFollowUpText] = useState("Send legacy planning one-pager");
   const [expenseAmount, setExpenseAmount] = useState("38");
   const [composerMode, setComposerMode] = useState("follow-up");
+  const [telegramStatus, setTelegramStatus] = useState({ tone: "idle", text: "" });
 
   const role = activeProfile.role;
   const activeAdvisor = role === "Advisor" ? activeProfile : people.find((person) => person.role === "Advisor") ?? advisor;
@@ -158,6 +160,7 @@ function App() {
   const activeExpenses = expenses.filter((expense) => expense.clientId === activeClient.id);
   const activeReferrals = referrals.filter((referral) => referral.clientId === activeClient.id);
   const consentLocked = activeClient.consentStatus !== "Verified";
+  const telegramReady = Boolean(activeClient.telegramOptIn && activeClient.telegramChatId && !consentLocked);
 
   const priorityClients = useMemo(() => getPriorityClients(clientsState, tasks), [clientsState, tasks]);
   const morningBrief = useMemo(
@@ -218,7 +221,7 @@ function App() {
           : composerMode === "compliance"
             ? "consent refresh and audit evidence"
             : nextActions[0]?.title ?? "client follow-up";
-      const channel = composerMode === "referral" ? "Email" : "WhatsApp";
+      const channel = "Telegram";
       return generateDraftMessage(activeClient, draftAction, channel);
     },
     [composerMode, activeClient, careMoments, relationshipDraft, partnerMatches, nextActions]
@@ -475,7 +478,52 @@ function App() {
     setExpenseAmount("");
   }
 
-  function approveComposerDraft() {
+  async function approveComposerDraft() {
+    setTelegramStatus({ tone: "idle", text: "" });
+
+    if (consentLocked) {
+      blockForConsent("Telegram message sending");
+      requestConsentRefresh("Telegram message was blocked because the selected client is consent-locked.");
+      setTelegramStatus({
+        tone: "error",
+        text: "Telegram blocked until consent is verified.",
+      });
+      return;
+    }
+
+    if (!telegramReady) {
+      queueAudit(`Blocked Telegram send for ${activeClient.name} because chat ID or opt-in is missing`, "Medium");
+      setTelegramStatus({
+        tone: "error",
+        text: "Telegram not ready. Add client chat ID and opt-in in Supabase.",
+      });
+      return;
+    }
+
+    setTelegramStatus({ tone: "sending", text: "Sending Telegram message..." });
+
+    try {
+      const result = await sendTelegramMessage({
+        clientId: activeClient.id,
+        subject: generatedDraft.subject,
+        message: generatedDraft.body,
+      });
+
+      if (result.localOnly) {
+        setTelegramStatus({ tone: "error", text: result.message });
+      } else {
+        setTelegramStatus({ tone: "success", text: "Telegram message sent and audited." });
+        queueAudit(`Sent Telegram message to ${activeClient.name}: ${generatedDraft.subject}`, "Low");
+      }
+    } catch (error) {
+      setTelegramStatus({
+        tone: "error",
+        text: error.message || "Telegram message failed.",
+      });
+      queueAudit(`Telegram message failed for ${activeClient.name}`, "Medium");
+      return;
+    }
+
     if (composerMode === "referral") {
       createReferral(partnerMatches[0], generatedDraft.body);
       return;
@@ -550,6 +598,8 @@ function App() {
               setComposerMode={setComposerMode}
               setExpenseAmount={setExpenseAmount}
               setFollowUpText={setFollowUpText}
+              telegramReady={telegramReady}
+              telegramStatus={telegramStatus}
               completeTask={completeTask}
             />
           ) : (
@@ -713,6 +763,8 @@ function AdvisorExperience(props) {
     setComposerMode,
     setExpenseAmount,
     setFollowUpText,
+    telegramReady,
+    telegramStatus,
     completeTask,
     route,
   } = props;
@@ -819,6 +871,8 @@ function AdvisorExperience(props) {
           generatedDraft={generatedDraft}
           onApproveDraft={onApproveDraft}
           setComposerMode={setComposerMode}
+          telegramReady={telegramReady}
+          telegramStatus={telegramStatus}
         />
         <FollowUpManager
           activeTasks={activeTasks}
@@ -1027,6 +1081,16 @@ function RelationshipSuggestionsPanel({
           <p>{meetingRecommendation.reason}</p>
           <b>{meetingRecommendation.channel}</b>
         </article>
+        <article>
+          <span>Telegram bridge</span>
+          <strong>{activeClient.telegramOptIn ? "Client opted in" : "Opt-in needed"}</strong>
+          <p>
+            {activeClient.telegramChatId
+              ? "Chat ID is saved. Advisor can send after reviewing the draft."
+              : "Add telegram_chat_id after the client starts the bot."}
+          </p>
+          <b>{activeClient.telegramOptIn && activeClient.telegramChatId ? "Ready" : "Not ready"}</b>
+        </article>
       </div>
       <div className="draft-box relationship-draft">
         <span>{relationshipDraft.channel}</span>
@@ -1104,10 +1168,18 @@ function CopilotPanel({ activeClient, clientBrief, complianceRisk, nextActions }
   );
 }
 
-function ActionComposer({ composerMode, consentLocked, generatedDraft, onApproveDraft, setComposerMode }) {
+function ActionComposer({
+  composerMode,
+  consentLocked,
+  generatedDraft,
+  onApproveDraft,
+  setComposerMode,
+  telegramReady,
+  telegramStatus,
+}) {
   return (
     <section className="panel action-composer">
-      <PanelHeader title="Action Composer" meta="Advisor approved" />
+      <PanelHeader title="Action Composer" meta={telegramReady ? "Telegram ready" : "Telegram setup needed"} />
       <div className="mode-switch">
         {[
           ["follow-up", "Care note"],
@@ -1134,8 +1206,22 @@ function ActionComposer({ composerMode, consentLocked, generatedDraft, onApprove
           ))}
         </ul>
       </div>
-      <button className="primary-action" onClick={onApproveDraft} type="button">
-        {consentLocked && composerMode !== "compliance" ? "Log Blocked Action" : "Save Advisor Action"}
+      {telegramStatus.text && (
+        <p className={`delivery-status delivery-${telegramStatus.tone}`}>
+          {telegramStatus.text}
+        </p>
+      )}
+      <button
+        className="primary-action"
+        disabled={telegramStatus.tone === "sending"}
+        onClick={onApproveDraft}
+        type="button"
+      >
+        {telegramStatus.tone === "sending"
+          ? "Sending Telegram"
+          : consentLocked && composerMode !== "compliance"
+            ? "Log Blocked Action"
+            : "Send Telegram And Save"}
       </button>
     </section>
   );
@@ -1200,6 +1286,10 @@ function ClientMemory({ activeClient }) {
                 <article>
                   <span>Channel</span>
                   <strong>{activeClient.preferredChannel}</strong>
+                </article>
+                <article>
+                  <span>Telegram</span>
+                  <strong>{activeClient.telegramOptIn && activeClient.telegramChatId ? "Ready" : "Setup needed"}</strong>
                 </article>
                 <article>
                   <span>Tone</span>

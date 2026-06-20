@@ -18,8 +18,34 @@ Client Relationship Intelligence fields live on `clients` so the app can calcula
 - Value inputs: `policy_value`, `opportunity_value`, `referral_potential`, `engagement_urgency`, `care_urgency`, `relationship_importance`
 - Relationship profile: `personality`, `interests`, `preferred_channel`, `preferred_tone`, `birthday`, `life_event`, `relationship_notes`
 - Gift guardrails: VIP capped at RM100, Gold capped at RM50, Silver/Bronze receive care-note suggestions only.
+- Telegram delivery: `telegram_opt_in` must be true and `telegram_chat_id` must be set before messages can be sent.
 
 Admin screens are read-only visual dashboards. Advisors own follow-up, consent refresh requests, referrals, and task creation from the app. Consent-locked clients remain masked and recommendation/gift/schedule outputs are blocked until consent is verified.
+
+Telegram setup:
+
+1. Create a bot with Telegram `@BotFather` and copy the bot token.
+2. Set Supabase Edge Function secrets:
+
+   ```bash
+   supabase secrets set TELEGRAM_BOT_TOKEN=your_bot_token
+   ```
+
+3. Deploy the function:
+
+   ```bash
+   supabase functions deploy send-telegram
+   ```
+
+4. Ask each client to start the bot in Telegram first. Telegram bots cannot message a user until the user has opened or started the bot.
+5. Store the client's chat ID:
+
+   ```sql
+   update clients
+   set telegram_chat_id = 'CLIENT_CHAT_ID',
+       telegram_opt_in = true
+   where id = 'client-tan';
+   ```
 
 Recommended Auth test accounts:
 

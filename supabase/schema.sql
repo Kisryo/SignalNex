@@ -57,6 +57,8 @@ create table if not exists clients (
   interests text[] not null default '{}',
   preferred_channel text not null default 'WhatsApp',
   preferred_tone text not null default 'Warm',
+  telegram_chat_id text,
+  telegram_opt_in boolean not null default false,
   birthday date,
   life_event text not null default '',
   relationship_notes text not null default '',
@@ -200,6 +202,20 @@ create table if not exists audit_logs (
   logged_at timestamptz not null default now()
 );
 
+create table if not exists message_deliveries (
+  id text primary key,
+  organization_id text references organizations(id) on delete cascade default 'org-aag-asg',
+  advisor_id text references profiles(id) on delete set null,
+  client_id text references clients(id) on delete cascade,
+  channel text not null check (channel in ('Telegram')),
+  subject text not null,
+  message text not null,
+  status text not null check (status in ('Sent', 'Failed')),
+  provider_message_id text,
+  error_message text,
+  created_at timestamptz not null default now()
+);
+
 alter table cpd_courses add column if not exists organization_id text references organizations(id) on delete cascade default 'org-aag-asg';
 alter table audit_logs add column if not exists organization_id text references organizations(id) on delete cascade default 'org-aag-asg';
 alter table clients add column if not exists policy_value numeric not null default 0;
@@ -212,6 +228,8 @@ alter table clients add column if not exists personality text not null default '
 alter table clients add column if not exists interests text[] not null default '{}';
 alter table clients add column if not exists preferred_channel text not null default 'WhatsApp';
 alter table clients add column if not exists preferred_tone text not null default 'Warm';
+alter table clients add column if not exists telegram_chat_id text;
+alter table clients add column if not exists telegram_opt_in boolean not null default false;
 alter table clients add column if not exists birthday date;
 alter table clients add column if not exists life_event text not null default '';
 alter table clients add column if not exists relationship_notes text not null default '';
@@ -225,6 +243,8 @@ alter table clients add constraint clients_care_urgency_range check (care_urgenc
 alter table clients drop constraint if exists clients_relationship_importance_range;
 alter table clients add constraint clients_relationship_importance_range check (relationship_importance between 0 and 100);
 
+alter table consent_requests drop constraint if exists consent_requests_status_check;
+
 update consent_requests
 set status = 'Pending consent refresh'
 where status = 'Pending admin review';
@@ -233,7 +253,6 @@ update consent_requests
 set status = 'Closed'
 where status in ('Approved', 'Rejected');
 
-alter table consent_requests drop constraint if exists consent_requests_status_check;
 alter table consent_requests add constraint consent_requests_status_check
   check (status in ('Pending consent refresh', 'Closed'));
 
@@ -357,6 +376,8 @@ returns table (
   interests text[],
   preferred_channel text,
   preferred_tone text,
+  telegram_chat_id text,
+  telegram_opt_in boolean,
   birthday date,
   life_event text,
   relationship_notes text,
@@ -399,6 +420,8 @@ as $$
     case when c.consent_status = 'Verified' then c.interests else array[]::text[] end,
     case when c.consent_status = 'Verified' then c.preferred_channel else 'Consent refresh' end,
     case when c.consent_status = 'Verified' then c.preferred_tone else 'Consent-safe' end,
+    case when c.consent_status = 'Verified' then c.telegram_chat_id else null::text end,
+    case when c.consent_status = 'Verified' then c.telegram_opt_in else false end,
     case when c.consent_status = 'Verified' then c.birthday else null::date end,
     case when c.consent_status = 'Verified' then c.life_event else 'Masked' end,
     case when c.consent_status = 'Verified' then c.relationship_notes else 'Private relationship intelligence remains masked until consent refresh.' end,
@@ -463,6 +486,7 @@ alter table admin_review_items enable row level security;
 alter table consent_requests enable row level security;
 alter table compliance_items enable row level security;
 alter table audit_logs enable row level security;
+alter table message_deliveries enable row level security;
 
 drop policy if exists "Authenticated users can read organizations" on organizations;
 drop policy if exists "Authenticated users can read profiles" on profiles;
@@ -508,6 +532,7 @@ drop policy if exists "Admins can update scoped consent requests" on consent_req
 drop policy if exists "Users can read scoped compliance items" on compliance_items;
 drop policy if exists "Users can read scoped audit logs" on audit_logs;
 drop policy if exists "Users can insert scoped audit logs" on audit_logs;
+drop policy if exists "Users can read scoped message deliveries" on message_deliveries;
 
 create policy "Organization members can read organization"
   on organizations for select to authenticated
@@ -589,3 +614,7 @@ create policy "Users can read scoped audit logs"
 create policy "Users can insert scoped audit logs"
   on audit_logs for insert to authenticated
   with check (organization_id = current_org_id());
+
+create policy "Users can read scoped message deliveries"
+  on message_deliveries for select to authenticated
+  using (organization_id = current_org_id() and (is_admin() or advisor_id = current_profile_id()));
