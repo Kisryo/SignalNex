@@ -10,6 +10,7 @@ import {
 } from "./data.js";
 import {
   buildMorningBrief,
+  buildMorningBriefActions,
   calculateClientValueScore,
   deriveClientTier,
   detectCareMoments,
@@ -54,25 +55,34 @@ const seededReferrals = referralOutcomes.map((referral) => {
 });
 
 const advisorRoutes = [
-  ["/advisor/today", "Today"],
-  ["/advisor/client", "Client Cockpit"],
-  ["/advisor/ai-profile", "AI Profile"],
-  ["/advisor/actions", "Action Workspace"],
-  ["/advisor/partners", "Partners"],
-  ["/advisor/learning", "Learning"],
+  { path: "/advisor/today", label: "HomePage" },
+  { path: "/advisor/clients", label: "Client" },
+  { path: "/advisor/client", label: "Client Detail", hidden: true },
+  { path: "/advisor/actions", label: "Action Workspace", nested: true },
+  { path: "/advisor/ai-profile", label: "AI Profile", nested: true },
+  { path: "/advisor/partners", label: "Partners" },
+  { path: "/advisor/learning", label: "Learning" },
+  { path: "/advisor/claims", label: "Claims", hidden: true },
 ];
 
 const adminRoutes = [
-  ["/admin/impact", "Impact"],
-  ["/admin/compliance", "Compliance"],
-  ["/admin/referrals", "Referrals"],
-  ["/admin/audit", "Audit"],
+  { path: "/admin/impact", label: "Impact" },
+  { path: "/admin/compliance", label: "Compliance" },
+  { path: "/admin/referrals", label: "Referrals" },
+  { path: "/admin/audit", label: "Audit" },
 ];
 
 function normalizePath(pathname, role = "Advisor") {
   const routes = role === "Admin" ? adminRoutes : advisorRoutes;
-  const supported = new Set(routes.map(([path]) => path));
+  const supported = new Set(routes.map((route) => route.path));
   return supported.has(pathname) ? pathname : role === "Admin" ? "/admin/impact" : "/advisor/today";
+}
+
+const tierRank = { VIP: 4, Gold: 3, Silver: 2, Bronze: 1, Hold: 0 };
+
+function clientTitle(client) {
+  const [title] = (client.name ?? "").split(" ");
+  return title || "Client";
 }
 
 function getClient(clientId, source = clients) {
@@ -154,6 +164,8 @@ function App() {
   const [composerMode, setComposerMode] = useState("follow-up");
   const [telegramStatus, setTelegramStatus] = useState({ tone: "idle", text: "" });
   const [telegramDraftBody, setTelegramDraftBody] = useState("");
+  const [hasClientContext, setHasClientContext] = useState(false);
+  const [draftContext, setDraftContext] = useState(null);
 
   const role = activeProfile.role;
   const activeAdvisor = role === "Advisor" ? activeProfile : people.find((person) => person.role === "Advisor") ?? advisor;
@@ -166,6 +178,10 @@ function App() {
   const telegramReady = Boolean(activeClient.telegramOptIn && activeClient.telegramChatId && !consentLocked);
 
   const priorityClients = useMemo(() => getPriorityClients(clientsState, tasks), [clientsState, tasks]);
+  const morningBriefActions = useMemo(
+    () => buildMorningBriefActions(clientsState, tasks, meetingsState, overnightSignalsState),
+    [clientsState, tasks, meetingsState, overnightSignalsState]
+  );
   const morningBrief = useMemo(
     () => buildMorningBrief(clientsState, tasks, meetingsState, overnightSignalsState),
     [clientsState, tasks, meetingsState, overnightSignalsState]
@@ -210,6 +226,9 @@ function App() {
   );
   const generatedDraft = useMemo(
     () => {
+      if (draftContext?.clientId === activeClient.id) {
+        return generateDraftMessage(activeClient, draftContext.action, "Telegram");
+      }
       if (composerMode === "follow-up" && careMoments.length > 0) {
         return {
           channel: relationshipDraft.channel,
@@ -227,7 +246,7 @@ function App() {
       const channel = "Telegram";
       return generateDraftMessage(activeClient, draftAction, channel);
     },
-    [composerMode, activeClient, careMoments, relationshipDraft, partnerMatches, nextActions]
+    [composerMode, activeClient, careMoments, relationshipDraft, partnerMatches, nextActions, draftContext]
   );
 
   useEffect(() => {
@@ -309,6 +328,9 @@ function App() {
     setOvernightSignalsState(bundle.overnightSignals);
     setPartnersState(bundle.partners);
     setActiveClientId((current) => (bundle.clients.some((client) => client.id === current) ? current : "client-tan"));
+    setHasClientContext(false);
+    setDraftContext(null);
+    setComposerMode("follow-up");
     setDataMode(bundle.connected ? "Supabase connected" : "Local fallback");
     const landingPath = bundle.profile.role === "Admin" ? "/admin/impact" : "/advisor/today";
     window.history.replaceState({}, "", landingPath);
@@ -351,9 +373,16 @@ function App() {
     return log;
   }
 
-  function selectClient(clientId) {
+  function selectClient(clientId, options = {}) {
     const selected = clientsState.find((client) => client.id === clientId);
     setActiveClientId(clientId);
+    setHasClientContext(Boolean(selected));
+    if (options.draftAction) {
+      setDraftContext({ clientId, action: options.draftAction });
+      setComposerMode("follow-up");
+    } else if (!options.keepDraft) {
+      setDraftContext(null);
+    }
     if (!selected) return;
     queueAudit(
       selected.consentStatus === "Verified"
@@ -361,6 +390,14 @@ function App() {
         : "Viewed masked profile for consent-locked client",
       selected.consentStatus === "Verified" ? "Low" : "High"
     );
+  }
+
+  function runMorningBriefAction(item) {
+    if (item.clientId) {
+      selectClient(item.clientId, { draftAction: item.draftAction });
+    }
+    queueAudit(`Opened HomePage brief action: ${item.type}`, item.priority === "High" ? "Medium" : "Low");
+    navigate(item.targetPath === "/advisor/client" ? "/advisor/actions" : item.targetPath);
   }
 
   function blockForConsent(action) {
@@ -429,17 +466,21 @@ function App() {
     queueAudit(`Completed advisor follow-up${targetClient ? ` for ${formatClientName(targetClient.id, clientsState)}` : ""}`);
   }
 
-  function createReferral(partner = partnerMatches[0], note = partner?.reason) {
+  function createReferral(partner = partnerMatches[0], note = partner?.reason, clientOverride = activeClient) {
     if (!partner) return;
-    if (consentLocked) {
+    const targetClient = clientOverride ?? activeClient;
+    const targetLocked = targetClient.consentStatus !== "Verified";
+    if (targetLocked) {
       blockForConsent("partner referral");
       requestConsentRefresh("Referral recommendation was blocked pending consent verification.");
       return;
     }
-    const expectedValue = activeClient.annualPremium ? Math.round(activeClient.annualPremium * 0.45) : 0;
+    setHasClientContext(true);
+    setActiveClientId(targetClient.id);
+    const expectedValue = targetClient.annualPremium ? Math.round(targetClient.annualPremium * 0.45) : 0;
     const referral = {
       id: `ref-${Date.now()}`,
-      clientId: activeClient.id,
+      clientId: targetClient.id,
       partnerId: partner.id,
       partnerName: partner.name,
       status: "Submitted",
@@ -453,7 +494,7 @@ function App() {
     createReferralRow(referral).catch((error) => {
       console.warn("Supabase referral write failed; local referral retained.", error);
     });
-    queueAudit(`Created ${partner.name} referral for ${activeClient.name}`, "Medium");
+    queueAudit(`Created ${partner.name} referral for ${targetClient.name}`, "Medium");
   }
 
   function createExpense() {
@@ -574,7 +615,12 @@ function App() {
         />
       ) : (
       <div className="primary-layout">
-        <NavigationShell currentPath={currentPath} navigate={navigate} role={role} />
+        <NavigationShell
+          currentPath={currentPath}
+          hasClientContext={hasClientContext}
+          navigate={navigate}
+          role={role}
+        />
         <div className="route-surface">
           {role === "Advisor" ? (
             <AdvisorExperience
@@ -605,14 +651,18 @@ function App() {
               meetingRecommendation={meetingRecommendation}
               meetings={meetingsState}
               morningBrief={morningBrief}
+              morningBriefActions={morningBriefActions}
               navigate={navigate}
               nextActions={nextActions}
               onApproveDraft={approveComposerDraft}
               partnerMatches={partnerMatches}
+              partnersState={partnersState}
               priorityClients={priorityClients}
+              referrals={referrals}
               relationshipDraft={relationshipDraft}
               requestConsentRefresh={requestConsentRefresh}
               route={currentPath}
+              runMorningBriefAction={runMorningBriefAction}
               selectClient={selectClient}
               setComposerMode={setComposerMode}
               setExpenseAmount={setExpenseAmount}
@@ -622,6 +672,8 @@ function App() {
               telegramReady={telegramReady}
               telegramStatus={telegramStatus}
               completeTask={completeTask}
+              complianceQueue={complianceQueueState}
+              tasks={tasks}
             />
           ) : (
             <AdminExperience
@@ -723,22 +775,66 @@ function TopBar({ businessImpact, dataMode, isAuthenticated, onLogout, user }) {
   );
 }
 
-function NavigationShell({ currentPath, navigate, role }) {
+function NavigationShell({ currentPath, hasClientContext, navigate, role }) {
   const routes = role === "Admin" ? adminRoutes : advisorRoutes;
+  const [clientNavOpen, setClientNavOpen] = useState(true);
+  const nestedRoutes = routes.filter((route) => route.nested);
   return (
     <aside className="side-nav">
       <div>
         <span>{role}</span>
-        {routes.map(([path, label]) => (
-          <button
-            className={currentPath === path ? "active" : ""}
-            key={path}
-            onClick={() => navigate(path)}
-            type="button"
-          >
-            {label}
-          </button>
-        ))}
+        {routes
+          .filter((route) => role === "Admin" || (!route.hidden && !route.nested))
+          .map((route) => {
+            if (role !== "Admin" && route.path === "/advisor/clients") {
+              return (
+                <div className="client-nav-group" key={route.path}>
+                  <div className="nav-row">
+                    <button
+                      className={currentPath === route.path ? "active" : ""}
+                      onClick={() => navigate(route.path)}
+                      type="button"
+                    >
+                      {route.label}
+                    </button>
+                    {hasClientContext && (
+                      <button
+                        aria-label={clientNavOpen ? "Hide client subpages" : "Show client subpages"}
+                        className={`nav-toggle ${clientNavOpen ? "active" : ""}`}
+                        onClick={() => setClientNavOpen((current) => !current)}
+                        title={clientNavOpen ? "Hide client subpages" : "Show client subpages"}
+                        type="button"
+                      >
+                        {clientNavOpen ? "^" : "v"}
+                      </button>
+                    )}
+                  </div>
+                  {hasClientContext && clientNavOpen &&
+                    nestedRoutes.map((nestedRoute) => (
+                      <button
+                        className={`${currentPath === nestedRoute.path ? "active" : ""} sub-route`}
+                        key={nestedRoute.path}
+                        onClick={() => navigate(nestedRoute.path)}
+                        type="button"
+                      >
+                        {nestedRoute.label}
+                      </button>
+                    ))}
+                </div>
+              );
+            }
+
+            return (
+              <button
+                className={currentPath === route.path ? "active" : ""}
+                key={route.path}
+                onClick={() => navigate(route.path)}
+                type="button"
+              >
+                {route.label}
+              </button>
+            );
+          })}
       </div>
       <small>{role} workspace</small>
     </aside>
@@ -759,6 +855,7 @@ function AdvisorExperience(props) {
     clientTier,
     clientValueScore,
     clientsState,
+    complianceQueue,
     complianceRisk,
     composerMode,
     consentLocked,
@@ -774,13 +871,17 @@ function AdvisorExperience(props) {
     meetingRecommendation,
     meetings,
     morningBrief,
+    morningBriefActions,
     navigate,
     nextActions,
     onApproveDraft,
     partnerMatches,
+    partnersState,
     priorityClients,
+    referrals,
     relationshipDraft,
     requestConsentRefresh,
+    runMorningBriefAction,
     selectClient,
     setComposerMode,
     setExpenseAmount,
@@ -790,14 +891,68 @@ function AdvisorExperience(props) {
     telegramReady,
     telegramStatus,
     completeTask,
+    tasks,
     route,
   } = props;
+  const [clientQuery, setClientQuery] = useState("");
+  const [clientSort, setClientSort] = useState("tier");
+
+  useEffect(() => {
+    if (route === "/advisor/actions" && composerMode !== "follow-up") {
+      setComposerMode("follow-up");
+    }
+  }, [composerMode, route, setComposerMode]);
+
+  const allCareMoments = useMemo(
+    () =>
+      clientsState.flatMap((client) =>
+        detectCareMoments(client, tasks).map((moment) => ({
+          ...moment,
+          clientId: client.id,
+          clientName: displayClientName(client),
+        }))
+      ),
+    [clientsState, tasks]
+  );
+
+  const searchableClients = useMemo(() => {
+    const query = clientQuery.trim().toLowerCase();
+    return [...priorityClients]
+      .filter((client) => {
+        if (!query) return true;
+        return [client.name, clientTitle(client), client.tier, client.nextBestOffer, client.needs?.join(" ")]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(query));
+      })
+      .sort((a, b) => {
+        if (clientSort === "priority") return b.score - a.score;
+        if (clientSort === "nextMeeting") return String(a.nextMeeting ?? "").localeCompare(String(b.nextMeeting ?? ""));
+        if (clientSort === "opportunity") return (b.opportunityValue ?? 0) - (a.opportunityValue ?? 0);
+        if (clientSort === "title") return clientTitle(a).localeCompare(clientTitle(b)) || b.score - a.score;
+        return (tierRank[b.tier] ?? 0) - (tierRank[a.tier] ?? 0) || b.score - a.score;
+      });
+  }, [clientQuery, clientSort, priorityClients]);
 
   const clientQueue = (
     <section className="panel">
-      <PanelHeader title="Client Priority Queue" meta="Explainable scoring" />
+      <PanelHeader title="Client Priority Queue" meta={`${searchableClients.length} visible`} />
+      <div className="client-toolbar">
+        <input
+          aria-label="Search client"
+          onChange={(event) => setClientQuery(event.target.value)}
+          placeholder="Search client name, title, tier or need"
+          value={clientQuery}
+        />
+        <select aria-label="Sort clients" onChange={(event) => setClientSort(event.target.value)} value={clientSort}>
+          <option value="tier">Sort by tier</option>
+          <option value="priority">Sort by priority score</option>
+          <option value="nextMeeting">Sort by next meeting</option>
+          <option value="opportunity">Sort by opportunity value</option>
+          <option value="title">Sort by Mr/Ms/Dr/Encik</option>
+        </select>
+      </div>
       <div className="client-strip">
-        {priorityClients.map((client) => (
+        {searchableClients.map((client) => (
           <button
             className={`client-tile ${activeClientId === client.id ? "selected" : ""} ${
               client.consentStatus === "Verified" ? "" : "locked"
@@ -930,7 +1085,6 @@ function AdvisorExperience(props) {
             telegramReady={telegramReady}
             telegramStatus={telegramStatus}
           />
-          <TelegramBotWorkflow activeClient={activeClient} />
         </div>
         <div className="content-grid three">
           <FollowUpManager
@@ -949,40 +1103,19 @@ function AdvisorExperience(props) {
             requestConsentRefresh={requestConsentRefresh}
           />
         </div>
-        <div className="content-grid">
-          <PartnerRadar
-            activeClient={activeClient}
-            consentLocked={consentLocked}
-            createReferral={createReferral}
-            partnerMatches={partnerMatches}
-          />
-          <ReferralExpensePanel
-            activeExpenses={activeExpenses}
-            activeReferrals={activeReferrals}
-            consentLocked={consentLocked}
-            createExpense={createExpense}
-            expenseAmount={expenseAmount}
-            setExpenseAmount={setExpenseAmount}
-          />
-        </div>
       </div>
     );
   }
 
   if (route === "/advisor/partners") {
     return (
-      <div className="content-grid">
-        <PartnerRadar
-          activeClient={activeClient}
-          consentLocked={consentLocked}
-          createReferral={createReferral}
-          partnerMatches={partnerMatches}
-        />
-        <section className="panel">
-          <PanelHeader title="Referral Pipeline" meta={`${activeReferrals.length} selected client`} />
-          <PipelineList clientsState={clientsState} referrals={activeReferrals} />
-        </section>
-      </div>
+      <PartnerHub
+        clientsState={clientsState}
+        complianceQueue={complianceQueue}
+        createReferral={createReferral}
+        partnersState={partnersState}
+        referrals={referrals}
+      />
     );
   }
 
@@ -1023,11 +1156,11 @@ function AdvisorExperience(props) {
     <div className="page-stack">
       <section className="command-hero">
         <div>
-          <p className="eyebrow">Advisor Today</p>
-          <h2>Choose the right client, then move into action.</h2>
+          <p className="eyebrow">Advisor HomePage</p>
+          <h2>Start the day with a voice brief, then turn each signal into the right workspace.</h2>
           <p>
-            Today is the decision page: scan the priority queue, understand the top care moments,
-            then open the cockpit or action workspace for the selected client.
+            HomePage reads the agenda, highlights urgent client care, and keeps the existing
+            client cockpit, AI profile, and action workspace ready for advisor review.
           </p>
         </div>
         <div className="impact-strip">
@@ -1037,31 +1170,118 @@ function AdvisorExperience(props) {
         </div>
       </section>
 
-      <section className="panel">
-        <PanelHeader title="Morning Command Brief" meta="Generated 08:00 MYT" />
-        <ul className="command-brief-list">
-          {morningBrief.map((item, index) => (
-            <li key={item}>
-              <b>{index + 1}</b>
-              <span>{item}</span>
-            </li>
-          ))}
-        </ul>
-      </section>
+      <MorningCommandPanel
+        actions={morningBriefActions}
+        meetings={meetings}
+        onRunAction={runMorningBriefAction}
+      />
       <div className="content-grid">
-        {clientQueue}
-        <CareMomentsPanel activeClient={activeClient} careMoments={careMoments} />
+        <MeetingsPanel clientsState={clientsState} meetings={meetings} title="Today Agenda" />
+        <WeeklyCareMomentsPanel careMoments={allCareMoments} onSelectClient={selectClient} />
       </div>
       <div className="content-grid">
-        <MeetingsPanel clientsState={clientsState} meetings={meetings} />
         <RelationshipSuggestionsPanel
           activeClient={activeClient}
           giftRecommendation={giftRecommendation}
           meetingRecommendation={meetingRecommendation}
           relationshipDraft={relationshipDraft}
         />
+        <CompliancePanel
+          activeClient={activeClient}
+          complianceRisk={complianceRisk}
+          consentLocked={consentLocked}
+          requestConsentRefresh={requestConsentRefresh}
+        />
       </div>
     </div>
+  );
+}
+
+function MorningCommandPanel({ actions, meetings, onRunAction }) {
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const briefingText = useMemo(() => {
+    const agendaLines = meetings.slice(0, 3).map((meeting) => `${meeting.time}: ${meeting.topic}`);
+    return [
+      "Good morning. Here is your AdvisorFlow briefing.",
+      ...actions.map((item) => item.label),
+      agendaLines.length > 0 ? `Today's agenda includes ${agendaLines.join(". ")}.` : "There are no meetings currently scheduled today.",
+      "Open each brief point to continue in the correct workspace.",
+    ].join(" ");
+  }, [actions, meetings]);
+
+  useEffect(() => {
+    return () => {
+      if ("speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  function playBriefing() {
+    if (!("speechSynthesis" in window)) return;
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(briefingText);
+    utterance.rate = 0.95;
+    utterance.pitch = 1;
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+    setIsSpeaking(true);
+  }
+
+  return (
+    <section className="panel morning-panel">
+      <div className="morning-header">
+        <PanelHeader title="Morning Command Brief" meta="Generated 08:00 MYT" />
+        <button className="voice-action" onClick={playBriefing} type="button">
+          {isSpeaking ? "Stop Voice Briefing" : "Play Voice Briefing"}
+        </button>
+      </div>
+      <div className="brief-grid">
+        {actions.map((item) => (
+          <button
+            className={`brief-card brief-${item.priority.toLowerCase()}`}
+            key={item.id}
+            onClick={() => onRunAction(item)}
+            type="button"
+          >
+            <span>{item.type}</span>
+            <strong>{item.label}</strong>
+            <small>{item.detail}</small>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function WeeklyCareMomentsPanel({ careMoments, onSelectClient }) {
+  return (
+    <section className="panel care-panel">
+      <PanelHeader title="This Week Care Moments" meta={`${careMoments.length} signals`} />
+      <div className="stack">
+        {careMoments.slice(0, 6).map((moment) => (
+          <button
+            className={`care-moment priority-${moment.priority.toLowerCase()}`}
+            key={`${moment.clientId}-${moment.id}`}
+            onClick={() => onSelectClient(moment.clientId)}
+            type="button"
+          >
+            <div>
+              <span>{moment.clientName} - {moment.type} - {moment.due}</span>
+              <strong>{moment.title}</strong>
+              <p>{moment.reason}</p>
+            </div>
+            <b>{moment.priority}</b>
+          </button>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -1251,7 +1471,7 @@ function TelegramBotConsole({
 
   return (
     <section className="panel telegram-console">
-      <PanelHeader title="Telegram Bot Console" meta={telegramReady ? "Ready to send" : "Setup needed"} />
+      <PanelHeader title="Auto Recommendation Message Console" meta={telegramReady ? "Ready to send" : "Setup needed"} />
       <div className="bot-status-card">
         <div>
           <span>Selected client</span>
@@ -1277,20 +1497,13 @@ function TelegramBotConsole({
       </div>
 
       <div className="mode-switch bot-mode-switch">
-        {[
-          ["follow-up", "Care note"],
-          ["referral", "Referral"],
-          ["compliance", "Escalation"],
-        ].map(([mode, label]) => (
-          <button
-            className={composerMode === mode ? "active" : ""}
-            key={mode}
-            onClick={() => setComposerMode(mode)}
-            type="button"
-          >
-            {label}
-          </button>
-        ))}
+        <button
+          className="active"
+          onClick={() => setComposerMode("follow-up")}
+          type="button"
+        >
+          Care note
+        </button>
       </div>
 
       <div className="bot-chat-preview">
@@ -1905,6 +2118,127 @@ function FollowUpManager({ activeTasks, completeTask, consentLocked, createFollo
   );
 }
 
+function PartnerHub({ clientsState, complianceQueue, createReferral, partnersState, referrals }) {
+  const opportunities = useMemo(
+    () =>
+      clientsState
+        .filter((client) => client.consentStatus === "Verified")
+        .flatMap((client) =>
+          matchPartners(client, partnersState)
+            .slice(0, 2)
+            .map((partner) => ({
+              id: `${client.id}-${partner.id}`,
+              client,
+              partner,
+              reason: partner.reason,
+              value: Math.round((client.opportunityValue ?? client.annualPremium ?? 0) * 0.35),
+            }))
+        )
+        .sort((a, b) => b.partner.matchScore - a.partner.matchScore)
+        .slice(0, 6),
+    [clientsState, partnersState]
+  );
+  const escalations = complianceQueue.filter((item) => item.status !== "Closed");
+
+  return (
+    <div className="page-stack partner-hub">
+      <section className="command-hero partner-hero">
+        <div>
+          <p className="eyebrow">Partner operating hub</p>
+          <h2>Centralize partner radar, referral handoff, evidence checks, and escalation control.</h2>
+          <p>
+            AdvisorFlow keeps partner work in one governed hub while the original client action
+            workspace stays available for advisor follow-up.
+          </p>
+        </div>
+        <div className="impact-strip">
+          <ImpactStat label="Opportunities" value={opportunities.length} />
+          <ImpactStat label="Partners" value={partnersState.length} />
+          <ImpactStat label="Escalations" value={escalations.length} />
+        </div>
+      </section>
+
+      <div className="content-grid">
+        <section className="panel">
+          <PanelHeader title="Partner Opportunities" meta="Client-fit matches" />
+          <div className="stack">
+            {opportunities.map((item) => (
+              <article className="partner-card" key={item.id}>
+                <div>
+                  <strong>{item.client.name}</strong>
+                  <span>{item.partner.name}</span>
+                  <small>{item.reason} - estimated value {currency(item.value)}</small>
+                </div>
+                <b>{item.partner.matchScore}%</b>
+                <button
+                  onClick={() => createReferral(item.partner, item.reason, item.client)}
+                  type="button"
+                >
+                  Refer
+                </button>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="panel">
+          <PanelHeader title="Partner Directory" meta={`${partnersState.length} desks`} />
+          <div className="stack">
+            {partnersState.map((partner) => (
+              <article className="directory-card" key={partner.id}>
+                <div>
+                  <strong>{partner.name}</strong>
+                  <span>{partner.specialty}</span>
+                  <small>{partner.availability} - SLA {partner.sla}</small>
+                </div>
+                <b>{partner.qualityScore}%</b>
+              </article>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <div className="content-grid">
+        <section className="panel">
+          <PanelHeader title="Referral Pipeline" meta={`${referrals.length} records`} />
+          <PipelineList clientsState={clientsState} referrals={referrals} />
+        </section>
+
+        <section className="panel">
+          <PanelHeader title="Handoff Checklist" meta="Evidence required" />
+          <div className="handoff-grid">
+            {partnersState.slice(0, 4).map((partner) => (
+              <article key={partner.id}>
+                <strong>{partner.name}</strong>
+                <ul className="compact-list">
+                  {partner.evidenceRequired.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </article>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <section className="panel">
+        <PanelHeader title="Escalations" meta={`${escalations.length} open`} />
+        <div className="stack">
+          {escalations.map((item) => (
+            <article className={`list-row severity-${item.severity.toLowerCase()}`} key={item.id}>
+              <div>
+                <strong>{formatClientName(item.clientId, clientsState)}</strong>
+                <span>{item.issue} - {item.control}</span>
+              </div>
+              <b>{item.status}</b>
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function PartnerRadar({ activeClient, consentLocked, createReferral, partnerMatches }) {
   return (
     <section className="panel">
@@ -1957,10 +2291,10 @@ function LearningPanel({ activeAdvisor, cpd }) {
   );
 }
 
-function MeetingsPanel({ clientsState, meetings }) {
+function MeetingsPanel({ clientsState, meetings, title = "Calendar Intelligence" }) {
   return (
     <section className="panel">
-      <PanelHeader title="Calendar Intelligence" meta={`${meetings.length} meetings`} />
+      <PanelHeader title={title} meta={`${meetings.length} meetings`} />
       <div className="stack">
         {meetings.map((meeting) => (
           <article className="list-row" key={meeting.id}>
