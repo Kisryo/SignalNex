@@ -1,10 +1,14 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+export const supabaseConfig = {
+  url: import.meta.env.VITE_SUPABASE_URL,
+  publishableKey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+};
 
-export const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
+export const isSupabaseConfigured = Boolean(supabaseConfig.url && supabaseConfig.publishableKey);
+export const allowLocalFallback = import.meta.env.VITE_ALLOW_LOCAL_FALLBACK === "true";
+export const localFallbackPassword = import.meta.env.VITE_LOCAL_FALLBACK_PASSWORD;
 
-export const supabase = hasSupabaseConfig
-  ? createClient(supabaseUrl, supabaseAnonKey)
+export const supabase = isSupabaseConfigured
+  ? createClient(supabaseConfig.url, supabaseConfig.publishableKey)
   : null;
