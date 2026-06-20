@@ -1089,6 +1089,344 @@ h3 {
   margin-top: 14px;
 }
 
+/* ===== Adaptive CPD & Learning Loop ===== */
+
+.cpd-hero-banner {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+  gap: 22px;
+  align-items: end;
+  padding: 24px;
+  border: 1px solid rgba(207, 218, 211, 0.9);
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(232, 242, 238, 0.92)),
+    linear-gradient(135deg, rgba(19, 95, 78, 0.12), transparent 60%);
+  box-shadow: 0 20px 44px rgba(47, 67, 57, 0.08);
+}
+
+.cpd-hero-banner h2 {
+  max-width: 720px;
+  margin-bottom: 10px;
+  color: #14251f;
+  font-size: clamp(1.6rem, 2.6vw, 2.8rem);
+  line-height: 1.06;
+}
+
+.cpd-hero-banner p {
+  max-width: 680px;
+  margin-bottom: 0;
+  color: #56675f;
+  font-weight: 650;
+}
+
+.cpd-advisor-switcher {
+  display: grid;
+  gap: 8px;
+}
+
+.cpd-advisor-switcher > span {
+  color: #66756e;
+  font-size: 0.76rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.cpd-advisor-switcher small {
+  opacity: 0.8;
+  font-weight: 700;
+}
+
+.cpd-notes-bar {
+  padding: 16px;
+  border: 1px solid rgba(207, 218, 211, 0.9);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 20px 44px rgba(47, 67, 57, 0.08);
+}
+
+.cpd-notes-bar label {
+  display: block;
+  margin-bottom: 8px;
+  color: #3a4f47;
+  font-size: 0.85rem;
+  font-weight: 850;
+}
+
+/* CPD Recommendation Card */
+.cpd-card {
+  display: grid;
+  gap: 14px;
+  background: linear-gradient(180deg, #ffffff, #f8fbf9);
+}
+
+.cpd-rule-novice {
+  border-left: 4px solid #4a90d9;
+}
+
+.cpd-rule-density {
+  border-left: 4px solid #135f4e;
+}
+
+.cpd-rule-gap {
+  border-left: 4px solid #b88238;
+}
+
+.cpd-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cpd-card-header > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cpd-rule-badge,
+.cpd-tier-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.cpd-rule-badge {
+  color: #135f4e;
+  background: #dff2ea;
+}
+
+.cpd-rule-gap .cpd-rule-badge {
+  color: #7a5a14;
+  background: #fff3d6;
+}
+
+.cpd-rule-novice .cpd-rule-badge {
+  color: #2a5fa8;
+  background: #e0edff;
+}
+
+.cpd-tier-badge {
+  color: #4a5f55;
+  background: #edf2ee;
+}
+
+.cpd-hours-badge {
+  display: grid;
+  place-items: center;
+  min-width: 64px;
+  padding: 8px;
+  border-radius: 10px;
+  background: #eef6f2;
+  text-align: center;
+}
+
+.cpd-hours-badge strong {
+  color: #135f4e;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.cpd-hours-badge span {
+  color: #66756e;
+  font-size: 0.72rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.cpd-card h3 {
+  margin-bottom: 4px;
+  color: #14251f;
+  font-size: 1.2rem;
+  line-height: 1.25;
+}
+
+.cpd-body {
+  margin: 0;
+  color: #56675f;
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.cpd-reasoning {
+  padding: 14px;
+  border: 1px solid #d8e4dc;
+  border-radius: 10px;
+  background: #eef6f2;
+}
+
+.cpd-reasoning span {
+  display: block;
+  margin-bottom: 6px;
+  color: #135f4e;
+  font-size: 0.74rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.cpd-reasoning p {
+  margin: 0;
+  color: #3a5248;
+  font-size: 0.9rem;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.cpd-density-bar {
+  position: relative;
+  height: 32px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #edf2ee;
+}
+
+.cpd-density-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #135f4e, #1a7d66);
+  transition: width 0.6s ease;
+}
+
+.cpd-density-bar span {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 12px;
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.cpd-completed {
+  background: #2b7a57 !important;
+  box-shadow: 0 10px 22px rgba(43, 122, 87, 0.25) !important;
+}
+
+/* CPD Right Stack */
+.cpd-right-stack {
+  display: grid;
+  gap: 14px;
+}
+
+/* CPD Progress Gauge */
+.cpd-gauge-panel {
+  background: linear-gradient(180deg, #ffffff, #f5faf7);
+}
+
+.cpd-gauge-container {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 12px 0;
+}
+
+.cpd-gauge-svg {
+  width: 160px;
+  height: 160px;
+  transform: rotate(-90deg);
+}
+
+.cpd-gauge-bg {
+  stroke: #edf2ee;
+}
+
+.cpd-gauge-fill {
+  stroke: #135f4e;
+}
+
+.cpd-gauge-label {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
+.cpd-gauge-label strong {
+  color: #135f4e;
+  font-size: 2rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.cpd-gauge-label span {
+  color: #66756e;
+  font-size: 0.85rem;
+  font-weight: 750;
+}
+
+.cpd-gauge-label small {
+  color: #8a9a92;
+  font-size: 0.72rem;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Engine Trace */
+.engine-trace {
+  display: grid;
+  gap: 8px;
+}
+
+.trace-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e0e8e1;
+  border-radius: 10px;
+  background: #fbfdfb;
+  opacity: 0.5;
+  transition: all 0.3s ease;
+}
+
+.trace-step.active {
+  opacity: 1;
+  border-color: #135f4e;
+  background: #eef6f2;
+  box-shadow: 0 4px 16px rgba(19, 95, 78, 0.12);
+}
+
+.trace-step b {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  border-radius: 8px;
+  color: #ffffff;
+  background: #c5d3ca;
+  font-size: 0.78rem;
+}
+
+.trace-step.active b {
+  background: #135f4e;
+  box-shadow: 0 4px 12px rgba(19, 95, 78, 0.3);
+}
+
+.trace-step strong {
+  display: block;
+  color: #203a31;
+  font-size: 0.88rem;
+}
+
+.trace-step span {
+  display: block;
+  color: #66756e;
+  font-size: 0.76rem;
+}
+
 @media (max-width: 1240px) {
   .primary-layout {
     grid-template-columns: 1fr;
@@ -1117,6 +1455,7 @@ h3 {
   }
 
   .command-hero,
+  .cpd-hero-banner,
   .brief-grid,
   .metrics-grid,
   .client-strip,
@@ -1128,6 +1467,370 @@ h3 {
     grid-template-columns: 1fr;
   }
 }
+/* --------------------------------------------------------
+   Knowledge Gate Modal Styles
+-------------------------------------------------------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(14, 25, 20, 0.4);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.modal-content.quiz-modal {
+  width: 100%;
+  max-width: 560px;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+  animation: fadeUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  background: #fbfdfb;
+  border-bottom: 1px solid #e1ebe5;
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #135f4e;
+}
+
+.close-btn {
+  background: transparent;
+  border: none;
+  font-size: 1.5rem;
+  color: #7b998f;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.close-btn:hover {
+  color: #135f4e;
+}
+
+.modal-body {
+  padding: 24px;
+}
+
+.quiz-context {
+  padding: 14px 18px;
+  background: #eef8f5;
+  border-left: 3px solid #135f4e;
+  border-radius: 6px;
+  margin-bottom: 24px;
+}
+
+.quiz-context strong {
+  display: block;
+  color: #135f4e;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 4px;
+}
+
+.quiz-context p {
+  margin: 0;
+  color: #203a31;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.quiz-question {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #13241e;
+  margin-bottom: 20px;
+  line-height: 1.4;
+}
+
+.quiz-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.quiz-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #cbd8cf;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  background: #ffffff;
+}
+
+.quiz-option:hover {
+  background: #f7fbf8;
+  border-color: #a4beae;
+}
+
+.quiz-option.selected {
+  background: #eef8f5;
+  border-color: #135f4e;
+  box-shadow: 0 0 0 1px #135f4e;
+}
+
+.quiz-option input[type="radio"] {
+  margin-top: 3px;
+  accent-color: #135f4e;
+  cursor: pointer;
+}
+
+.quiz-option span {
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: #315248;
+  cursor: pointer;
+}
+
+.quiz-error {
+  color: #b75537;
+  font-size: 0.9rem;
+  background: #fff3ef;
+  padding: 12px 16px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+  font-weight: 500;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.modal-actions button {
+  padding: 12px 28px;
+  font-size: 0.95rem;
+}
+
+/* --------------------------------------------------------
+   UI Issue Redesign Additions
+-------------------------------------------------------- */
+
+/* Score Dropdown */
+.score-dropdown {
+  position: relative;
+  cursor: pointer;
+}
+
+.score-dropdown summary {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.score-dropdown summary::-webkit-details-marker {
+  display: none;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 280px;
+  background: #fff;
+  border: 1px solid #d5ded7;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  padding: 16px;
+  z-index: 100;
+}
+
+.dropdown-menu p {
+  font-size: 0.9rem;
+  margin: 0 0 8px 0;
+  color: #315248;
+}
+
+.dropdown-menu p:last-child {
+  margin-bottom: 0;
+}
+
+.dropdown-menu small {
+  color: #7b998f;
+  margin-left: 20px;
+}
+
+/* Auto Gaps Panel */
+.cpd-auto-gaps {
+  background: #fbfdfb;
+  border: 1px solid #cbd8cf;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  transition: all 0.2s;
+}
+
+.cpd-auto-gaps:hover {
+  background: #f4f8f5;
+  border-color: #a4beae;
+}
+
+.gaps-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.gaps-header strong {
+  color: #135f4e;
+  font-size: 1.05rem;
+}
+
+.gaps-header small {
+  color: #7b998f;
+}
+
+.gaps-list {
+  margin: 0 0 12px 0;
+  padding-left: 20px;
+  color: #315248;
+}
+
+.gaps-list li {
+  margin-bottom: 6px;
+  font-size: 0.95rem;
+}
+
+.gaps-footer {
+  color: #2b7a57;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+/* Why Recommended */
+.why-recommended {
+  padding: 10px 0;
+}
+
+.why-recommended p {
+  margin: 0 0 10px 0;
+  color: #315248;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+/* Advisor Readiness */
+.readiness-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.readiness-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.readiness-col strong {
+  color: #135f4e;
+  margin-bottom: 12px;
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.readiness-col p {
+  margin: 0 0 8px 0;
+  font-size: 0.9rem;
+  color: #315248;
+}
+
+.empty-state {
+  color: #7b998f !important;
+  font-style: italic;
+  background: #f7fbf8;
+  padding: 10px;
+  border-radius: 6px;
+}
+
+/* Course Cards */
+.course-card {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  gap: 16px;
+  align-items: center;
+}
+
+.course-card-content strong {
+  display: block;
+  font-size: 1.05rem;
+  margin-bottom: 6px;
+}
+
+.course-card-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 0.85rem;
+  color: #7b998f;
+  margin-bottom: 8px;
+}
+
+.course-card-meta span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.course-card-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #315248;
+}
+
+.progress-bar-mini {
+  width: 80px;
+  height: 6px;
+  background: #e1ebe5;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-bar-mini div {
+  height: 100%;
+  background: #2b7a57;
+}
+
+.course-start-btn {
+  white-space: nowrap;
+}
+
+.regulatory-label {
+  display: block;
+  margin-top: 4px;
+  color: #7b998f;
+  font-size: 0.75rem;
+}
+
 
 @media (max-width: 760px) {
   .app-shell {
@@ -1157,6 +1860,7 @@ h3 {
   .demo-rail,
   .action-rail,
   .command-hero,
+  .cpd-hero-banner,
   .brief-grid,
   .metrics-grid,
   .client-strip,

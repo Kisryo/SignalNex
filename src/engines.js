@@ -409,3 +409,280 @@ export function summarizeAdmin({ clients, tasks, referrals, expenses, compliance
     },
   ];
 }
+
+// ---------------------------------------------------------------------------
+// Adaptive CPD & Learning Loop – Dual-Engine Architecture
+// Implements Pillar A (Novice Layer), Pillar B (Portfolio Density), and
+// Pillar C (Real-Time Gap Detection) from Learning.md.
+// ---------------------------------------------------------------------------
+
+const GAP_KEYWORDS = [
+  { pattern: /tax\s*threshold/i, moduleId: "cpd-mod-gap-tax", reason: "Gap Alert: Recent notes mention tax threshold uncertainty — this micro-lesson closes the knowledge gap before your next client conversation." },
+  { pattern: /trust/i, moduleId: "cpd-mod-gap-trust", reason: "Gap Alert: Trust structuring appeared in your recent notes — this rapid lesson ensures you can confidently discuss trust options." },
+  { pattern: /lapse|missed\s*premium/i, moduleId: "cpd-mod-gap-lapse", reason: "Gap Alert: Lapse risk language detected in recent activity — complete this module to handle premium recovery conversations." },
+];
+
+const CLUSTER_LABELS = {
+  SME_Owner: "SME business owners",
+  HNW_Legacy: "HNW legacy guardians",
+  Mass_Affluent: "mass affluent professionals",
+};
+
+export function recommendLearningModule(advisorId, allAdvisors, allClients, cpdModules, recentNotes = "") {
+  const advisor = allAdvisors.find((a) => a.id === advisorId);
+  if (!advisor) {
+    return {
+      module: null,
+      ruleFired: "none",
+      strategicReasoning: "No advisor found for the given ID.",
+    };
+  }
+
+  const advisorClients = allClients.filter((c) => c.advisorId === advisorId);
+
+  // ---- Rule C: Gap Detection (overrides Rules A & B) ----
+  if (recentNotes && recentNotes.trim().length > 0) {
+    for (const keyword of GAP_KEYWORDS) {
+      if (keyword.pattern.test(recentNotes)) {
+        const gapModule = cpdModules.find((m) => m.id === keyword.moduleId);
+        if (gapModule) {
+          return {
+            module: gapModule,
+            ruleFired: "C",
+            strategicReasoning: keyword.reason,
+          };
+        }
+      }
+    }
+  }
+
+  // ---- Rule A: Novice Layer ----
+  if (advisor.experienceLevel === "Novice") {
+    const foundational = cpdModules.filter((m) => m.clusterTarget === "Foundational");
+    const module = foundational[0] ?? null;
+    return {
+      module,
+      ruleFired: "A",
+      strategicReasoning: module
+        ? `Onboarding Path: As a newly onboarded advisor, your learning track prioritises foundational competencies. "${module.title}" builds the baseline skills needed before advanced portfolio-driven electives are unlocked.`
+        : "No foundational modules available.",
+    };
+  }
+
+  // ---- Rule B: Portfolio Density Layer (Senior) ----
+  const clusterCounts = {};
+  for (const client of advisorClients) {
+    const cluster = client.portfolioCluster;
+    if (cluster) {
+      clusterCounts[cluster] = (clusterCounts[cluster] || 0) + 1;
+    }
+  }
+
+  const totalClients = advisorClients.length || 1;
+  let dominantCluster = null;
+  let dominantPct = 0;
+
+  for (const [cluster, count] of Object.entries(clusterCounts)) {
+    const pct = Math.round((count / totalClients) * 100);
+    if (pct > dominantPct) {
+      dominantPct = pct;
+      dominantCluster = cluster;
+    }
+  }
+
+  // Density threshold: recommend cluster-specific module when >= 40% concentration
+  if (dominantCluster && dominantPct >= 40) {
+    const clusterModules = cpdModules.filter((m) => m.clusterTarget === dominantCluster);
+    const module = clusterModules[0] ?? null;
+    const clusterLabel = CLUSTER_LABELS[dominantCluster] || dominantCluster;
+
+    return {
+      module,
+      ruleFired: "B",
+      strategicReasoning: module
+        ? `Portfolio Alert: ${dominantPct}% of your book consists of ${clusterLabel}. "${module.title}" is a high-impact elective that directly maps to the estate continuity, tax, and structuring needs dominating your client conversations.`
+        : `Portfolio density detected (${dominantPct}% ${clusterLabel}) but no matching modules found.`,
+      portfolioDensity: { cluster: dominantCluster, percentage: dominantPct },
+    };
+  }
+
+  // Fallback: no dominant cluster, recommend first available foundational module
+  const fallback = cpdModules.filter((m) => m.clusterTarget === "Foundational")[0] ?? cpdModules[0];
+  return {
+    module: fallback,
+    ruleFired: "B-fallback",
+    strategicReasoning: fallback
+      ? `Your portfolio is diversified across segments. "${fallback.title}" strengthens cross-segment advisory skills applicable to your current book balance.`
+      : "No learning modules available.",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge Gate — Scenario-Based Post-Lesson Quiz
+// Generates contextual questions using the advisor's actual client data so
+// the quiz tests applied understanding, not rote memory.
+// ---------------------------------------------------------------------------
+
+const QUIZ_TEMPLATES = {
+  trust: (client) => ({
+    question: `Based on this module, what is the immediate compliance risk for your client, ${client.name}, if their estate assets are transferred without a properly structured trust arrangement?`,
+    options: [
+      { id: "a", text: "The transfer would be tax-exempt under Malaysian law regardless of structure.", correct: false },
+      { id: "b", text: "Beneficiaries could face forced liquidation, probate delays, and unintended estate duty exposure.", correct: true },
+      { id: "c", text: "The only risk is a minor administrative fee for late trust registration.", correct: false },
+      { id: "d", text: "No risk exists as long as a will is in place, even without a trust.", correct: false },
+    ],
+    explanation: `Without proper trust structuring, ${client.name}'s beneficiaries face probate delays, forced asset liquidation, and potential estate duty exposure — especially critical for cross-border holdings.`,
+  }),
+  legacy: (client) => ({
+    question: `Your client ${client.name} recently had a liquidity event. According to this module, what should be the FIRST step in their estate continuity plan?`,
+    options: [
+      { id: "a", text: "Immediately invest all proceeds into a single insurance product.", correct: false },
+      { id: "b", text: "Conduct a suitability review mapping the liquidity event to updated beneficiary nominations, tax sequencing, and estate bridge needs.", correct: true },
+      { id: "c", text: "Wait 12 months for the tax year to close before taking any action.", correct: false },
+      { id: "d", text: "Refer directly to a solicitor without any advisory needs analysis.", correct: false },
+    ],
+    explanation: `A liquidity event for ${client.name} triggers immediate estate re-sequencing needs. The correct first step is a structured suitability review before any product action.`,
+  }),
+  tax: (client) => ({
+    question: `${client.name} is approaching a corporate tax threshold boundary. Based on this module, what is the primary advisory risk if this is not flagged proactively?`,
+    options: [
+      { id: "a", text: "There is no risk; tax thresholds adjust automatically.", correct: false },
+      { id: "b", text: "The client may unknowingly trigger a higher tax bracket, increasing effective rates on business income and reducing protection affordability.", correct: true },
+      { id: "c", text: "The advisor loses their commission on existing policies.", correct: false },
+      { id: "d", text: "The client's medical coverage is automatically suspended.", correct: false },
+    ],
+    explanation: `Failing to flag ${client.name}'s proximity to a tax threshold could result in unexpected bracket jumps that reduce disposable income and make protection premiums unaffordable.`,
+  }),
+  "tax threshold": (client) => ({
+    question: `Your client ${client.name}'s business income is nearing the next chargeable income tier. According to this module, what should you verify BEFORE the next review meeting?`,
+    options: [
+      { id: "a", text: "Only the client's personal savings balance.", correct: false },
+      { id: "b", text: "The gap between current chargeable income and the next threshold, and whether current protection premiums remain affordable under the higher effective rate.", correct: true },
+      { id: "c", text: "The client's social media activity for lifestyle changes.", correct: false },
+      { id: "d", text: "Nothing — tax thresholds are the accountant's responsibility, not the advisor's.", correct: false },
+    ],
+    explanation: `For ${client.name}, verifying the income-to-threshold gap ensures your advice accounts for potential premium affordability changes and allows proactive restructuring.`,
+  }),
+  "key-person": (client) => ({
+    question: `${client.name} has key-person concentration risk. If the key person becomes incapacitated, what does this module identify as the most critical immediate exposure?`,
+    options: [
+      { id: "a", text: "Loss of the company's social media presence.", correct: false },
+      { id: "b", text: "The business may fail to meet loan covenants, triggering debt recall and threatening the continuity of operations.", correct: true },
+      { id: "c", text: "Minor inconvenience in scheduling client meetings.", correct: false },
+      { id: "d", text: "Automatic transfer of business ownership to the next shareholder.", correct: false },
+    ],
+    explanation: `For ${client.name}, key-person incapacitation can trigger loan covenant breaches, debt recall, and operational failure — the most severe and immediate financial exposure.`,
+  }),
+  underwriting: (client) => ({
+    question: `When assessing suitability for ${client.name}, what does this module say is the FIRST requirement before recommending any product?`,
+    options: [
+      { id: "a", text: "Check the advisor's commission rate for each product.", correct: false },
+      { id: "b", text: "Verify that the client's needs analysis, risk profile, and disclosure evidence are documented and current.", correct: true },
+      { id: "c", text: "Present the most expensive product as it provides the highest coverage.", correct: false },
+      { id: "d", text: "Ask the client to sign a blank application form to save time.", correct: false },
+    ],
+    explanation: `Before any recommendation for ${client.name}, the advisor must verify the needs analysis, risk classification, and disclosure evidence are up-to-date — this is the foundation of suitability.`,
+  }),
+  compliance: (client) => ({
+    question: `If ${client.name || "a client"}'s PDPA consent has expired, what actions does this module require the advisor to take IMMEDIATELY?`,
+    options: [
+      { id: "a", text: "Continue accessing the client's data but add a note to refresh consent later.", correct: false },
+      { id: "b", text: "Mask all private data, block referrals and recommendations, and initiate a consent refresh workflow before any further access.", correct: true },
+      { id: "c", text: "Delete the client's records from the system entirely.", correct: false },
+      { id: "d", text: "Email the client asking them to visit the office in person within 30 days.", correct: false },
+    ],
+    explanation: `When consent expires, the module requires immediate data masking, blocking of all recommendations and referrals, and a formal consent refresh — no exceptions.`,
+  }),
+  "cross-selling": (client) => ({
+    question: `During a review with ${client.name}, they mention a new life event. According to this module, how should you capture this for cross-selling opportunities?`,
+    options: [
+      { id: "a", text: "Ignore it unless they explicitly ask about new products.", correct: false },
+      { id: "b", text: "Log the life event in the client memory, map it to potential coverage gaps, and flag it for the next needs analysis review.", correct: true },
+      { id: "c", text: "Immediately recommend a product before the client changes their mind.", correct: false },
+      { id: "d", text: "Forward the information to a third-party lead generator.", correct: false },
+    ],
+    explanation: `The module teaches capturing relational context from ${client.name}'s life events into structured memory, mapping to coverage gaps, and scheduling a proper needs review — not rushing to sell.`,
+  }),
+  income: (client) => ({
+    question: `${client.name}'s income protection needs must be reviewed after a career change. According to this module, what is the key ratio to verify?`,
+    options: [
+      { id: "a", text: "The ratio of the client's social media followers to their income.", correct: false },
+      { id: "b", text: "The debt-to-income ratio and whether current coverage replaces sufficient income during disability.", correct: true },
+      { id: "c", text: "The client's commute distance to their new workplace.", correct: false },
+      { id: "d", text: "Only the premium amount, regardless of coverage adequacy.", correct: false },
+    ],
+    explanation: `After a career change for ${client.name}, the debt-to-income ratio and income replacement adequacy during disability are the critical metrics this module highlights for review.`,
+  }),
+  medical: (client) => ({
+    question: `For ${client.name}'s family, this module highlights a common gap in standard medical coverage. What is it?`,
+    options: [
+      { id: "a", text: "Coverage for cosmetic procedures.", correct: false },
+      { id: "b", text: "Dependent coverage gaps where newborns or elderly parents are not automatically included, and specialist panel access limitations.", correct: true },
+      { id: "c", text: "Free gym membership inclusion.", correct: false },
+      { id: "d", text: "Coverage for overseas holiday medical emergencies only.", correct: false },
+    ],
+    explanation: `The most common gap for families like ${client.name}'s is that newborns and elderly dependents are not automatically covered, and specialist panel access may be limited under standard plans.`,
+  }),
+  lapse: (client) => ({
+    question: `${client.name || "A client"} has missed a premium payment. According to this module, what is the advisor's FIRST compliant action?`,
+    options: [
+      { id: "a", text: "Cancel the policy immediately to avoid further liability.", correct: false },
+      { id: "b", text: "Contact the client using service-first language within the grace period, disclose lapse risk transparently, and document the outreach in the audit trail.", correct: true },
+      { id: "c", text: "Wait for the insurer to contact the client directly.", correct: false },
+      { id: "d", text: "Pay the premium from the advisor's own funds to prevent lapse.", correct: false },
+    ],
+    explanation: `The module requires immediate, documented outreach using service-first language during the grace period, with transparent lapse risk disclosure — protecting both the client and the advisor's compliance record.`,
+  }),
+};
+
+// Fallback generic quiz for topics without a specific template
+function genericQuiz(mod, client) {
+  return {
+    question: `After completing "${mod.title}", which of the following best describes the correct advisory approach for a client like ${client.name}?`,
+    options: [
+      { id: "a", text: "Skip the needs analysis and recommend the highest-premium product available.", correct: false },
+      { id: "b", text: "Apply the module's framework: assess needs, verify suitability, document evidence, and only then make a compliant recommendation.", correct: true },
+      { id: "c", text: "Defer all decisions to the client without providing any structured advice.", correct: false },
+      { id: "d", text: "Copy another advisor's recommendation from a similar case.", correct: false },
+    ],
+    explanation: `The correct approach always follows the evidence-based advisory framework: assess, verify, document, then recommend — tailored to ${client.name}'s specific circumstances.`,
+  };
+}
+
+export function generateKnowledgeGateQuiz(module, advisorId, allClients) {
+  if (!module) return null;
+
+  // Pick a real client from the advisor's book to contextualise the question
+  const advisorClients = allClients.filter(
+    (c) => c.advisorId === advisorId && c.consentStatus === "Verified"
+  );
+  const contextClient = advisorClients[0] ?? {
+    name: "your client",
+    segment: "Client",
+    occupation: "Professional",
+    needs: [],
+  };
+
+  // Find the matching question template by module topic
+  const templateFn = QUIZ_TEMPLATES[module.topic];
+  const quiz = templateFn ? templateFn(contextClient) : genericQuiz(module, contextClient);
+
+  // Shuffle options deterministically based on module id
+  const seed = module.id.split("").reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+  const shuffled = [...quiz.options].sort((a, b) => {
+    const ha = ((a.id.charCodeAt(0) * seed) % 97);
+    const hb = ((b.id.charCodeAt(0) * seed) % 97);
+    return ha - hb;
+  });
+
+  return {
+    moduleId: module.id,
+    moduleTitle: module.title,
+    clientName: contextClient.name,
+    question: quiz.question,
+    options: shuffled,
+    explanation: quiz.explanation,
+    correctId: quiz.options.find((o) => o.correct)?.id,
+  };
+}
