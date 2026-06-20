@@ -4,15 +4,6 @@ AI assistant for insurance agents in the AAG x ASG ImagineHack 2026 Track 1 chal
 
 > Turn existing client data into daily priorities and ready-to-send actions.
 
-Companion docs:
-
-- `draft.md` - clear product and pitch draft
-- `problem-statement.md` - competition problem framing
-- `CLAUDE.md` - project instructions for AI coding agents and teammates
-- `plan.md` - build workflow and roadmap
-- `design.md` - interface and system design
-- `task.md` - demo and delivery checklist
-
 ## 1. What This Project Is
 
 AdvisorFlow AI is a demo-ready agent assistant for insurance and advisory teams. It helps agents answer four daily questions:
