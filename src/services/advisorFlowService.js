@@ -114,6 +114,8 @@ function mapClient(row) {
     interests: row.interests ?? [],
     preferredChannel: row.preferred_channel,
     preferredTone: row.preferred_tone,
+    telegramChatId: row.telegram_chat_id ?? "",
+    telegramOptIn: Boolean(row.telegram_opt_in),
     birthday: row.birthday,
     lifeEvent: row.life_event,
     relationshipNotes: row.relationship_notes,
@@ -457,4 +459,28 @@ export async function createAuditLogRow(log) {
     .single();
   if (error) throw error;
   return mapAudit(data);
+}
+
+export async function sendTelegramMessage({ clientId, message, subject }) {
+  if (!isSupabaseConfigured) {
+    return {
+      ok: false,
+      localOnly: true,
+      message: "Telegram sending needs Supabase Edge Functions and a Telegram bot token.",
+    };
+  }
+
+  const { data, error } = await supabase.functions.invoke("send-telegram", {
+    body: {
+      clientId,
+      message,
+      subject,
+    },
+  });
+
+  if (error) throw error;
+  if (!data?.ok) {
+    throw new Error(data?.error || "Telegram message was not sent.");
+  }
+  return data;
 }

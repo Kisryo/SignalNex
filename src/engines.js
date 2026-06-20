@@ -197,26 +197,32 @@ export function detectCareMoments(client, tasks = [], referenceDate = today) {
   const birthdayDays = daysUntilMonthDay(client.birthday, referenceDate);
   const preferredChannel = client.preferredChannel ?? "WhatsApp";
   const preferredTone = client.preferredTone ?? "Warm";
+  const tierInfo = deriveClientTier(calculateClientValueScore(client).score);
+  const birthdayLeadDays = tierInfo.tier === "VIP" ? 21 : tierInfo.tier === "Gold" ? 14 : 7;
+  const giftPlanningNote =
+    tierInfo.tier === "VIP" || tierInfo.tier === "Gold"
+      ? `${tierInfo.tier} client: prepare the birthday gift note early because sourcing needs lead time.`
+      : "Birthday note only; gift is not recommended for this tier.";
 
   if (birthdayDays === 0) {
     moments.push({
       id: `${client.id}-birthday-today`,
       type: "Birthday",
-      title: "Birthday care moment today",
+      title: "Birthday and gift care moment today",
       due: "Today",
       priority: "High",
-      reason: `${client.name} prefers a ${preferredTone.toLowerCase()} tone on ${preferredChannel}.`,
-      action: "Send a personal birthday note before any product discussion.",
+      reason: `${client.name} prefers a ${preferredTone.toLowerCase()} tone. ${giftPlanningNote}`,
+      action: "Send a warm Telegram birthday message and record the gift guardrail note.",
     });
-  } else if (birthdayDays !== null && birthdayDays <= 7) {
+  } else if (birthdayDays !== null && birthdayDays <= birthdayLeadDays) {
     moments.push({
       id: `${client.id}-birthday-upcoming`,
       type: "Birthday",
-      title: `Birthday care moment in ${birthdayDays} day(s)`,
+      title: `Birthday and gift planning in ${birthdayDays} day(s)`,
       due: `${birthdayDays} day(s)`,
-      priority: "Medium",
-      reason: "Upcoming birthday is inside the one-week relationship window.",
-      action: "Schedule a short greeting and record the touchpoint.",
+      priority: tierInfo.tier === "VIP" || tierInfo.tier === "Gold" ? "High" : "Medium",
+      reason: `Upcoming birthday is inside the ${birthdayLeadDays}-day ${tierInfo.tier} planning window. ${giftPlanningNote}`,
+      action: "Prepare the birthday gift note and schedule a warm Telegram greeting.",
     });
   }
 
@@ -390,7 +396,7 @@ export function suggestMeetingSlot(client, meetings = [], careMoments = []) {
 }
 
 export function generateRelationshipMessage(client, { actionTitle, careMoment, giftRecommendation, meetingRecommendation } = {}) {
-  const channel = client?.preferredChannel ?? "WhatsApp";
+  const channel = "Telegram";
 
   if (!client || client.consentStatus !== "Verified") {
     return {
@@ -403,26 +409,34 @@ export function generateRelationshipMessage(client, { actionTitle, careMoment, g
   }
 
   const tone = client.preferredTone ?? "Warm";
-  const opener = channel === "Email" ? `Dear ${client.name},` : `Hi ${client.name},`;
+  const opener = `Hi ${client.name},`;
   const interestText = (client.interests ?? []).filter((interest) => /golf|coffee/i.test(interest)).join(" and ");
-  const momentText = careMoment?.type === "Birthday"
-    ? `Happy birthday. I hope you get a calm moment${interestText ? ` for ${interestText}` : ""}.`
-    : client.lifeEvent
-      ? `I remembered your update: ${client.lifeEvent.toLowerCase()}.`
-      : "I wanted to check in while this is still timely.";
+  const momentText =
+    careMoment?.type === "Birthday" && careMoment?.due === "Today"
+      ? `Happy birthday. I hope you get a calm moment${interestText ? ` for ${interestText}` : ""}.`
+      : careMoment?.type === "Birthday"
+        ? `Your birthday is coming up, so I wanted to send a warm note early and make sure the timing is thoughtful.`
+        : client.lifeEvent
+          ? `I remembered your update: ${client.lifeEvent.toLowerCase()}.`
+          : "I wanted to check in while this is still timely.";
   const actionText = actionTitle ?? careMoment?.action ?? "set up a short planning check-in";
   const meetingText = meetingRecommendation
     ? `A good next step is ${meetingRecommendation.channel} at ${meetingRecommendation.slot}.`
     : "I can work around your preferred timing.";
-  const giftText = giftRecommendation?.allowed
-    ? `Separately, I noted a modest relationship gesture: ${giftRecommendation.recommendation.toLowerCase()}.`
-    : "";
+  const actionSentence =
+    careMoment?.type === "Birthday"
+      ? "I will keep this note simple for today, and we can catch up when the timing is convenient."
+      : `I suggest we ${actionText.toLowerCase().replace(/\.$/, "")}. ${meetingText}`;
+  const giftText =
+    giftRecommendation?.allowed && careMoment?.type === "Birthday"
+      ? "I also made a small note on my side to keep your birthday follow-up thoughtful."
+      : "";
 
   return {
     channel,
     tone,
     subject: `${client.name}: ${careMoment?.type ?? "relationship"} follow-up`,
-    body: [opener, momentText, `I suggest we ${actionText.toLowerCase()}. ${meetingText}`, giftText]
+    body: [opener, momentText, actionSentence, giftText]
       .filter(Boolean)
       .join("\n\n"),
     guardrails: [
@@ -638,8 +652,8 @@ export function generateDraftMessage(client, action, channel = "WhatsApp") {
   }
 
   const isPremiumRisk = client.prioritySignals.some((signal) => /missed premium|lapse/i.test(signal));
-  const preferredChannel = channel ?? client.preferredChannel ?? "WhatsApp";
-  const opener = preferredChannel === "Email" ? `Dear ${client.name},` : `Hi ${client.name},`;
+  const preferredChannel = "Telegram";
+  const opener = `Hi ${client.name},`;
   const actionTitle = typeof action === "string" ? action : action?.title ?? client.nextBestOffer;
   const careMoment = detectCareMoments(client, [])[0];
   const relationshipLine = careMoment

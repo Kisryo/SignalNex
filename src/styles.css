@@ -757,6 +757,31 @@ h3 {
   margin-bottom: 12px;
 }
 
+.delivery-status {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #d8e4dc;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.delivery-sending {
+  background: #eef6f2;
+  color: #135f4e;
+}
+
+.delivery-success {
+  background: #eef9f4;
+  color: #0f6b43;
+}
+
+.delivery-error {
+  background: #fff7f3;
+  border-color: #e6ad9a;
+  color: #8a321f;
+}
+
 .tier-distribution {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-bottom: 12px;

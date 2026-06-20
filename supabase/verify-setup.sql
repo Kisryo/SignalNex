@@ -36,6 +36,7 @@ union all select 'admin_review_items', count(*) from admin_review_items
 union all select 'consent_requests', count(*) from consent_requests
 union all select 'compliance_items', count(*) from compliance_items
 union all select 'audit_logs', count(*) from audit_logs
+union all select 'message_deliveries', count(*) from message_deliveries
 order by table_name;
 
 select
@@ -45,6 +46,7 @@ select
       and opportunity_value is not null
       and preferred_channel is not null
       and preferred_tone is not null
+      and telegram_opt_in is not null
       and relationship_notes is not null
   ) as passed,
   count(*) as total
@@ -59,6 +61,8 @@ select
   c.estimated_coverage_gap,
   c.preferred_channel,
   c.preferred_tone,
+  c.telegram_opt_in,
+  case when c.telegram_chat_id is null then 'MISSING CHAT ID' else 'READY' end as telegram_status,
   c.life_event
 from clients c
 left join profiles p on p.id = c.advisor_id
@@ -99,6 +103,8 @@ select
   interests,
   preferred_channel,
   preferred_tone,
+  telegram_opt_in,
+  telegram_chat_id,
   life_event
 from clients
 where id = 'client-tan';
