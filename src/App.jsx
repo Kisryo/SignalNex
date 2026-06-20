@@ -523,6 +523,16 @@ function App() {
     queueAudit(`Completed advisor follow-up${targetClient ? ` for ${formatClientName(targetClient.id, clientsState)}` : ""}`);
   }
 
+  function selectDemoAdvisor(advisorId) {
+    if (!advisorId) return;
+    const nextAdvisor =
+      people.find((person) => person.id === advisorId) ??
+      advisors.find((person) => person.id === advisorId);
+    if (!nextAdvisor) return;
+    setActiveProfile(nextAdvisor);
+    queueAudit(`Switched demo advisor identity to ${nextAdvisor.name}`, "Low");
+  }
+
   function createReferral(partner = partnerMatches[0], note = partner?.reason, clientOverride = activeClient) {
     if (!partner) return;
     const targetClient = clientOverride ?? activeClient;
@@ -725,6 +735,7 @@ function App() {
               activeExpenses={activeExpenses}
               activeReferrals={activeReferrals}
               activeTasks={activeTasks}
+              onSelectDemoAdvisor={selectDemoAdvisor}
               recentDoneTasks={recentDoneTasks}
               businessImpact={businessImpact}
               careMoments={careMoments}
@@ -814,7 +825,7 @@ function LoginPanel({
       <form className="login-panel" onSubmit={onLogin}>
         <div>
           <p className="eyebrow">Secure workspace</p>
-          <h2>Sign in to AdvisorFlow AI</h2>
+          <h2>Sign in to SignalNex</h2>
           <p>
             Use your Supabase Auth account. Admin and advisor access is loaded from your linked profile.
           </p>
@@ -850,10 +861,10 @@ function TopBar({ businessImpact, dataMode, isAuthenticated, onLogout, user }) {
   return (
     <header className="topbar">
       <div className="brand-block">
-        <div className="brand-mark">AF</div>
+        <div className="brand-mark">SN</div>
         <div>
           <p className="eyebrow">Secure advisory operating platform</p>
-          <h1>AdvisorFlow AI</h1>
+          <h1>SignalNex</h1>
         </div>
       </div>
       <div className="topbar-actions">
@@ -954,6 +965,7 @@ function AdvisorExperience(props) {
     businessImpact,
     careMoments,
     doneCareMoments,
+    onSelectDemoAdvisor,
     onSelectMoment,
     pendingCareMoments,
     recentDoneTasks,
@@ -1251,12 +1263,13 @@ function AdvisorExperience(props) {
 
   if (route === "/advisor/learning") {
     return (
-      <LearningFeature 
-        activeAdvisor={activeAdvisor} 
-        clientsState={clientsState} 
-        cpdModules={cpdModules} 
-        cpd={cpd} 
-        businessImpact={businessImpact} 
+      <LearningFeature
+        activeAdvisor={activeAdvisor}
+        clientsState={clientsState}
+        cpdModules={cpdModules}
+        cpd={cpd}
+        businessImpact={businessImpact}
+        onSelectDemoAdvisor={onSelectDemoAdvisor}
       />
     );
   }
