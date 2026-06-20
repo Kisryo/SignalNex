@@ -2,53 +2,62 @@ import { useEffect, useMemo, useState } from "react";
 import {
   advisors,
   auditLogsSeed,
-  adminReviewItems,
-  businessImpact as businessImpactSeed,
-  complianceQueue,
   clients,
-  cpdCourses,
-  demoEvents,
   expensesSeed,
-  meetings,
-  overnightSignals,
-  partners,
   referralOutcomes,
   tasks as taskSeed,
 } from "./data.js";
 import {
-  buildDemoStory,
   buildMorningBrief,
+  calculateClientValueScore,
+  deriveClientTier,
+  detectCareMoments,
   generateClientBrief,
   generateDraftMessage,
   generateNextBestActions,
+  generateRelationshipMessage,
   getPriorityClients,
   matchPartners,
   recommendCpd,
+  recommendGift,
   scoreComplianceRisk,
+  suggestMeetingSlot,
   summarizeAdmin,
   summarizeBusinessImpact,
+  summarizeRelationshipAdmin,
 } from "./engines.js";
+import {
+  completeTaskRow,
+  createAuditLogRow,
+  createConsentRequestRow,
+  createExpenseRow,
+  createReferralRow,
+  createTaskRow,
+  getFallbackData,
+  sendTelegramMessage,
+  signInAdvisorFlow,
+  signOutAdvisorFlow,
+} from "./services/advisorFlowService.js";
+import { generateClientProfile } from "./services/openaiClient.js";
 
 const advisor = advisors.find((person) => person.role === "Advisor");
 const admin = advisors.find((person) => person.role === "Admin");
 
 const seededReferrals = referralOutcomes.map((referral) => {
-  const partner = partners.find((item) => item.id === referral.partnerId);
   return {
     ...referral,
-    partnerName: partner?.name ?? "Partner desk",
+    partnerName: "Partner desk",
     value: referral.expectedValue,
   };
 });
 
 const advisorRoutes = [
   ["/advisor/today", "Today"],
-  ["/advisor/clients", "Clients"],
-  ["/advisor/client", "Cockpit"],
-  ["/advisor/actions", "Actions"],
+  ["/advisor/client", "Client Cockpit"],
+  ["/advisor/ai-profile", "AI Profile"],
+  ["/advisor/actions", "Action Workspace"],
   ["/advisor/partners", "Partners"],
   ["/advisor/learning", "Learning"],
-  ["/advisor/claims", "Claims"],
 ];
 
 const adminRoutes = [
@@ -58,9 +67,10 @@ const adminRoutes = [
   ["/admin/audit", "Audit"],
 ];
 
-function normalizePath(pathname) {
-  const supported = new Set([...advisorRoutes, ...adminRoutes, ["/demo", "Demo"]].map(([path]) => path));
-  return supported.has(pathname) ? pathname : "/advisor/today";
+function normalizePath(pathname, role = "Advisor") {
+  const routes = role === "Admin" ? adminRoutes : advisorRoutes;
+  const supported = new Set(routes.map(([path]) => path));
+  return supported.has(pathname) ? pathname : role === "Admin" ? "/admin/impact" : "/advisor/today";
 }
 
 function getClient(clientId, source = clients) {
@@ -86,24 +96,20 @@ function currency(value) {
   return `RM ${Number(value).toLocaleString("en-MY")}`;
 }
 
-function buildImpactSummary({ auditLogs, businessImpactRows, consentRequests, cpd, referrals, tasks }) {
+function buildImpactSummary({ activeAdvisor, auditLogs, businessImpactRows, consentRequests, cpd, referrals, tasks }) {
   const findRow = (pattern) => businessImpactRows.find((row) => pattern.test(row.label));
   const managedPremium = findRow(/managed premium/i)?.displayValue ?? "RM 0";
   const referralPipeline =
     findRow(/referral revenue|weighted referral/i)?.displayValue ??
     findRow(/referral/i)?.displayValue ??
     "RM 0";
-  const openConsentRequests = consentRequests.filter((request) => request.status === "Pending admin review");
+  const openConsentRequests = consentRequests.filter((request) => request.status.startsWith("Pending"));
   const blockedRisks = auditLogs.filter((log) => log.risk === "High").length + openConsentRequests.length;
   const openTasks = tasks.filter((task) => task.status !== "Done").length;
   const overdueTasks = tasks.filter((task) => task.status === "Overdue").length;
   const followUpCompletion = Math.max(0, Math.round(((tasks.length - openTasks) / Math.max(tasks.length, 1)) * 100));
-  const cpdReadiness = Math.min(100, Math.round((advisor.cpdHours / Math.max(advisor.cpdTarget, 1)) * 100));
+  const cpdReadiness = Math.min(100, Math.round((activeAdvisor.cpdHours / Math.max(activeAdvisor.cpdTarget, 1)) * 100));
   const referralHygiene = Math.min(100, 62 + referrals.length * 7);
-  const trackFit = Math.min(
-    98,
-    78 + Math.min(referrals.length * 2, 8) + (blockedRisks > 0 ? 5 : 0) + (cpd.length > 3 ? 5 : 0)
-  );
 
   return {
     blockedRisks,
@@ -113,73 +119,136 @@ function buildImpactSummary({ auditLogs, businessImpactRows, consentRequests, cp
     managedPremium,
     referralHygiene,
     referralPipeline,
-    trackFit,
   };
 }
 
 function App() {
+  const fallbackData = useMemo(() => getFallbackData(), []);
   const [currentPath, setCurrentPath] = useState(() => normalizePath(window.location.pathname));
-  const [role, setRole] = useState("Advisor");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [dataMode, setDataMode] = useState("Local fallback");
+  const [activeProfile, setActiveProfile] = useState(fallbackData.profile);
+  const [people, setPeople] = useState(fallbackData.advisors);
   const [activeClientId, setActiveClientId] = useState("client-tan");
-  const [tasks, setTasks] = useState(taskSeed);
-  const [referrals, setReferrals] = useState(seededReferrals);
-  const [expenses, setExpenses] = useState(expensesSeed);
-  const [auditLogs, setAuditLogs] = useState(auditLogsSeed);
-  const [clientsState, setClientsState] = useState(clients);
-  const [consentRequests, setConsentRequests] = useState([
-    {
-      id: "consent-1",
-      clientId: "client-lee",
-      status: "Pending admin review",
-      reason: "Advisor attempted to open a masked profile before PDPA refresh.",
-    },
-  ]);
+  const [tasks, setTasks] = useState(fallbackData.tasks);
+  const [referrals, setReferrals] = useState(fallbackData.referrals);
+  const [expenses, setExpenses] = useState(fallbackData.expenses);
+  const [auditLogs, setAuditLogs] = useState(fallbackData.auditLogs);
+  const [clientsState, setClientsState] = useState(fallbackData.clients);
+  const [consentRequests, setConsentRequests] = useState(fallbackData.consentRequests);
+  const [adminReviewItemsState, setAdminReviewItemsState] = useState(fallbackData.adminReviewItems);
+  const [businessImpactRowsState, setBusinessImpactRowsState] = useState(fallbackData.businessImpact);
+  const [complianceQueueState, setComplianceQueueState] = useState(fallbackData.complianceQueue);
+  const [cpdCoursesState, setCpdCoursesState] = useState(fallbackData.cpdCourses);
+  const [meetingsState, setMeetingsState] = useState(fallbackData.meetings);
+  const [overnightSignalsState, setOvernightSignalsState] = useState(fallbackData.overnightSignals);
+  const [partnersState, setPartnersState] = useState(fallbackData.partners);
   const [followUpText, setFollowUpText] = useState("Send legacy planning one-pager");
   const [expenseAmount, setExpenseAmount] = useState("38");
   const [composerMode, setComposerMode] = useState("follow-up");
+  const [telegramStatus, setTelegramStatus] = useState({ tone: "idle", text: "" });
+  const [telegramDraftBody, setTelegramDraftBody] = useState("");
 
-  const activeClient = clientsState.find((client) => client.id === activeClientId);
+  const role = activeProfile.role;
+  const activeAdvisor = role === "Advisor" ? activeProfile : people.find((person) => person.role === "Advisor") ?? advisor;
+  const activeAdmin = role === "Admin" ? activeProfile : people.find((person) => person.role === "Admin") ?? admin;
+  const activeClient = clientsState.find((client) => client.id === activeClientId) ?? clientsState[0] ?? clients[0];
   const activeTasks = tasks.filter((task) => task.clientId === activeClient.id && task.status !== "Done");
   const activeExpenses = expenses.filter((expense) => expense.clientId === activeClient.id);
   const activeReferrals = referrals.filter((referral) => referral.clientId === activeClient.id);
   const consentLocked = activeClient.consentStatus !== "Verified";
+  const telegramReady = Boolean(activeClient.telegramOptIn && activeClient.telegramChatId && !consentLocked);
 
   const priorityClients = useMemo(() => getPriorityClients(clientsState, tasks), [clientsState, tasks]);
-  const morningBrief = useMemo(() => buildMorningBrief(clientsState, tasks, meetings, overnightSignals), [clientsState, tasks]);
-  const cpd = useMemo(() => recommendCpd(cpdCourses, clientsState, advisor), [clientsState]);
-  const partnerMatches = useMemo(() => matchPartners(activeClient, partners), [activeClient]);
+  const morningBrief = useMemo(
+    () => buildMorningBrief(clientsState, tasks, meetingsState, overnightSignalsState),
+    [clientsState, tasks, meetingsState, overnightSignalsState]
+  );
+  const cpd = useMemo(
+    () => recommendCpd(cpdCoursesState, clientsState, activeAdvisor),
+    [cpdCoursesState, clientsState, activeAdvisor]
+  );
+  const partnerMatches = useMemo(() => matchPartners(activeClient, partnersState), [activeClient, partnersState]);
   const complianceRisk = useMemo(
-    () => scoreComplianceRisk(activeClient, tasks, complianceQueue),
-    [activeClient, tasks]
+    () => scoreComplianceRisk(activeClient, tasks, complianceQueueState),
+    [activeClient, tasks, complianceQueueState]
   );
   const clientBrief = useMemo(
-    () => generateClientBrief(activeClient, tasks, overnightSignals, referrals),
-    [activeClient, tasks, referrals]
+    () => generateClientBrief(activeClient, tasks, overnightSignalsState, referrals),
+    [activeClient, tasks, overnightSignalsState, referrals]
+  );
+  const clientValueScore = useMemo(() => calculateClientValueScore(activeClient), [activeClient]);
+  const clientTier = useMemo(() => deriveClientTier(clientValueScore.score), [clientValueScore]);
+  const careMoments = useMemo(() => detectCareMoments(activeClient, tasks), [activeClient, tasks]);
+  const giftRecommendation = useMemo(
+    () => recommendGift(activeClient, clientTier),
+    [activeClient, clientTier]
+  );
+  const meetingRecommendation = useMemo(
+    () => suggestMeetingSlot(activeClient, meetingsState, careMoments),
+    [activeClient, meetingsState, careMoments]
+  );
+  const relationshipDraft = useMemo(
+    () =>
+      generateRelationshipMessage(activeClient, {
+        actionTitle: careMoments[0]?.action,
+        careMoment: careMoments[0],
+        giftRecommendation,
+        meetingRecommendation,
+      }),
+    [activeClient, careMoments, giftRecommendation, meetingRecommendation]
   );
   const nextActions = useMemo(
-    () => generateNextBestActions(activeClient, tasks, partners, complianceQueue),
-    [activeClient, tasks]
+    () => generateNextBestActions(activeClient, tasks, partnersState, complianceQueueState),
+    [activeClient, tasks, partnersState, complianceQueueState]
   );
   const generatedDraft = useMemo(
     () => {
+      if (composerMode === "follow-up" && careMoments.length > 0) {
+        return {
+          channel: relationshipDraft.channel,
+          subject: relationshipDraft.subject,
+          body: relationshipDraft.body,
+          disclaimers: relationshipDraft.guardrails,
+        };
+      }
       const draftAction =
         composerMode === "referral"
           ? partnerMatches[0]?.name ?? "partner referral"
           : composerMode === "compliance"
             ? "consent refresh and audit evidence"
             : nextActions[0]?.title ?? "client follow-up";
-      const channel = composerMode === "referral" ? "Email" : "WhatsApp";
+      const channel = "Telegram";
       return generateDraftMessage(activeClient, draftAction, channel);
     },
-    [composerMode, activeClient, partnerMatches, nextActions]
+    [composerMode, activeClient, careMoments, relationshipDraft, partnerMatches, nextActions]
   );
+
+  useEffect(() => {
+    setTelegramDraftBody(generatedDraft.body);
+    setTelegramStatus({ tone: "idle", text: "" });
+  }, [generatedDraft.body, activeClient.id]);
+
   const businessImpactRows = useMemo(
-    () => summarizeBusinessImpact(businessImpactSeed, clientsState, referrals),
-    [clientsState, referrals]
+    () => summarizeBusinessImpact(businessImpactRowsState, clientsState, referrals),
+    [businessImpactRowsState, clientsState, referrals]
   );
   const businessImpact = useMemo(
-    () => buildImpactSummary({ businessImpactRows, tasks, referrals, auditLogs, cpd, consentRequests }),
-    [businessImpactRows, tasks, referrals, auditLogs, cpd, consentRequests]
+    () =>
+      buildImpactSummary({
+        activeAdvisor,
+        businessImpactRows,
+        tasks,
+        referrals,
+        auditLogs,
+        cpd,
+        consentRequests,
+      }),
+    [activeAdvisor, businessImpactRows, tasks, referrals, auditLogs, cpd, consentRequests]
   );
   const adminMetrics = useMemo(
     () =>
@@ -188,69 +257,103 @@ function App() {
         tasks,
         referrals,
         expenses,
-        complianceItems: complianceQueue,
-        reviewItems: adminReviewItems,
+        complianceItems: complianceQueueState,
+        reviewItems: adminReviewItemsState,
       }),
-    [tasks, referrals, expenses]
+    [clientsState, tasks, referrals, expenses, complianceQueueState, adminReviewItemsState]
   );
-  const demoStory = useMemo(
-    () =>
-      buildDemoStory({
-        clients: clientsState,
-        tasks,
-        meetings,
-        signals: overnightSignals,
-        partners,
-        complianceItems: complianceQueue,
-        impactItems: businessImpactSeed,
-        referrals,
-      }),
-    [clientsState, tasks, referrals]
+  const adminRelationship = useMemo(
+    () => summarizeRelationshipAdmin(clientsState, tasks),
+    [clientsState, tasks]
   );
 
   useEffect(() => {
-    const handlePopState = () => setCurrentPath(normalizePath(window.location.pathname));
+    const handlePopState = () => setCurrentPath(normalizePath(window.location.pathname, role));
     window.addEventListener("popstate", handlePopState);
     if (window.location.pathname !== currentPath) {
       window.history.replaceState({}, "", currentPath);
     }
     return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
-
-  useEffect(() => {
-    if (currentPath.startsWith("/admin") && role !== "Admin") {
-      setRole("Admin");
-    }
-    if (currentPath.startsWith("/advisor") && role !== "Advisor") {
-      setRole("Advisor");
-    }
   }, [currentPath, role]);
 
+  useEffect(() => {
+    const normalized = normalizePath(currentPath, role);
+    if (normalized !== currentPath) {
+      navigate(normalized);
+    }
+  }, [role]);
+
   function navigate(path) {
-    const nextPath = normalizePath(path);
+    const nextPath = normalizePath(path, role);
     if (nextPath === currentPath) return;
     window.history.pushState({}, "", nextPath);
     setCurrentPath(nextPath);
   }
 
-  function addAudit(action, risk = "Low") {
-    setAuditLogs((current) => [
-      {
-        id: `audit-${Date.now()}`,
-        time: new Date().toLocaleTimeString("en-MY", { hour: "2-digit", minute: "2-digit" }),
-        actor: role === "Admin" ? admin.name : advisor.name,
-        action,
-        risk,
-      },
-      ...current,
-    ]);
+  function applyDataBundle(bundle) {
+    setActiveProfile(bundle.profile);
+    setPeople(bundle.advisors);
+    setClientsState(bundle.connected ? bundle.clients : bundle.clients.length > 0 ? bundle.clients : clients);
+    setTasks(bundle.connected ? bundle.tasks : bundle.tasks.length > 0 ? bundle.tasks : taskSeed);
+    setReferrals(bundle.connected ? bundle.referrals : bundle.referrals.length > 0 ? bundle.referrals : seededReferrals);
+    setExpenses(bundle.connected ? bundle.expenses : bundle.expenses.length > 0 ? bundle.expenses : expensesSeed);
+    setConsentRequests(bundle.consentRequests);
+    setAuditLogs(bundle.connected ? bundle.auditLogs : bundle.auditLogs.length > 0 ? bundle.auditLogs : auditLogsSeed);
+    setAdminReviewItemsState(bundle.adminReviewItems);
+    setBusinessImpactRowsState(bundle.businessImpact);
+    setComplianceQueueState(bundle.complianceQueue);
+    setCpdCoursesState(bundle.cpdCourses);
+    setMeetingsState(bundle.meetings);
+    setOvernightSignalsState(bundle.overnightSignals);
+    setPartnersState(bundle.partners);
+    setActiveClientId((current) => (bundle.clients.some((client) => client.id === current) ? current : "client-tan"));
+    setDataMode(bundle.connected ? "Supabase connected" : "Local fallback");
+    const landingPath = bundle.profile.role === "Admin" ? "/admin/impact" : "/advisor/today";
+    window.history.replaceState({}, "", landingPath);
+    setCurrentPath(landingPath);
+  }
+
+  async function handleLogin(event) {
+    event.preventDefault();
+    setLoginError("");
+    setIsLoggingIn(true);
+    try {
+      const bundle = await signInAdvisorFlow(loginEmail.trim(), loginPassword);
+      applyDataBundle(bundle);
+      setIsAuthenticated(true);
+    } catch (error) {
+      setLoginError(error.message || "Login failed.");
+    } finally {
+      setIsLoggingIn(false);
+    }
+  }
+
+  async function handleLogout() {
+    await signOutAdvisorFlow();
+    setIsAuthenticated(false);
+    applyDataBundle(getFallbackData());
+  }
+
+  function queueAudit(action, risk = "Low") {
+    const log = {
+      id: `audit-${Date.now()}`,
+      time: new Date().toLocaleTimeString("en-MY", { hour: "2-digit", minute: "2-digit" }),
+      actor: role === "Admin" ? activeAdmin.name : activeAdvisor.name,
+      action,
+      risk,
+    };
+    setAuditLogs((current) => [log, ...current]);
+    createAuditLogRow(log).catch((error) => {
+      console.warn("Supabase audit write failed; local audit retained.", error);
+    });
+    return log;
   }
 
   function selectClient(clientId) {
     const selected = clientsState.find((client) => client.id === clientId);
     setActiveClientId(clientId);
     if (!selected) return;
-    addAudit(
+    queueAudit(
       selected.consentStatus === "Verified"
         ? `Viewed ${selected.name} client memory`
         : "Viewed masked profile for consent-locked client",
@@ -259,80 +362,29 @@ function App() {
   }
 
   function blockForConsent(action) {
-    addAudit(`Blocked ${action} for consent-locked client until consent refresh`, "High");
+    queueAudit(`Blocked ${action} for consent-locked client until consent refresh`, "High");
   }
 
   function requestConsentRefresh(reason = "Advisor requested a consent refresh from the action composer.") {
     const alreadyOpen = consentRequests.some(
-      (request) => request.clientId === activeClient.id && request.status !== "Approved"
+      (request) => request.clientId === activeClient.id && request.status.startsWith("Pending")
     );
     if (!alreadyOpen) {
+      const request = {
+        id: `consent-${Date.now()}`,
+        clientId: activeClient.id,
+        status: "Pending consent refresh",
+        reason,
+      };
       setConsentRequests((current) => [
-        {
-          id: `consent-${Date.now()}`,
-          clientId: activeClient.id,
-          status: "Pending admin review",
-          reason,
-        },
+        request,
         ...current,
       ]);
+      createConsentRequestRow(request).catch((error) => {
+        console.warn("Supabase consent request write failed; local request retained.", error);
+      });
     }
-    addAudit("Requested consent refresh for consent-locked client", "High");
-  }
-
-  function resolveConsentRequest(requestId, decision) {
-    const request = consentRequests.find((item) => item.id === requestId);
-    if (!request) return;
-
-    setConsentRequests((current) =>
-      current.map((item) =>
-        item.id === requestId
-          ? {
-              ...item,
-              status: decision === "Approved" ? "Approved" : "Rejected",
-            }
-          : item
-      )
-    );
-
-    if (decision === "Approved") {
-      setClientsState((current) =>
-        current.map((client) =>
-          client.id === request.clientId
-            ? {
-                ...client,
-                consentStatus: "Verified",
-                name: "Verified client profile",
-                segment: "Emerging Affluent",
-                occupation: "Client profile restored",
-                location: "Verified location",
-                prioritySignals: ["Consent refreshed", "Education planning review"],
-                needs: ["education", "medical", "retirement"],
-                assets: "RM 620k",
-                annualPremium: 18000,
-                household: "Verified household profile",
-                propensity: 76,
-                estimatedCoverageGap: 540000,
-                nextBestOffer: "Education and maternity protection review",
-                memory: [
-                  "Prefers digital walkthroughs and quick simulations.",
-                  "Family protection review requested.",
-                  "Asked about education funding scenarios.",
-                ],
-                timeline: [
-                  { date: "2026-06-20", type: "Consent", note: "Consent refresh approved by admin." },
-                  { date: "2026-06-21", type: "Meeting", note: "Education and maternity coverage review." },
-                ],
-              }
-            : client
-        )
-      );
-    }
-
-    addAudit(
-      `${decision} consent refresh request for ${formatClientName(request.clientId, clientsState)}`,
-      decision === "Approved" ? "Low" : "Medium"
-    );
+    queueAudit("Requested consent refresh for consent-locked client", "High");
   }
 
   function createFollowUp(title = followUpText.trim(), source = "manual") {
@@ -342,18 +394,19 @@ function App() {
       requestConsentRefresh("Follow-up was blocked because the selected client is consent-locked.");
       return;
     }
-    setTasks((current) => [
-      {
-        id: `task-${Date.now()}`,
-        clientId: activeClient.id,
-        title,
-        due: "2026-06-21",
-        status: "Open",
-        severity: source === "copilot" ? "high" : "medium",
-      },
-      ...current,
-    ]);
-    addAudit(`Created ${source} follow-up for ${activeClient.name}`, source === "copilot" ? "Medium" : "Low");
+    const task = {
+      id: `task-${Date.now()}`,
+      clientId: activeClient.id,
+      title,
+      due: "2026-06-21",
+      status: "Open",
+      severity: source === "copilot" ? "high" : "medium",
+    };
+    setTasks((current) => [task, ...current]);
+    createTaskRow(task).catch((error) => {
+      console.warn("Supabase task write failed; local task retained.", error);
+    });
+    queueAudit(`Created ${source} follow-up for ${activeClient.name}`, source === "copilot" ? "Medium" : "Low");
     setFollowUpText("");
   }
 
@@ -362,13 +415,16 @@ function App() {
     const targetClient = clientsState.find((client) => client.id === targetTask?.clientId);
     const isConsentTask = /consent|pdpa/i.test(targetTask?.title ?? "");
     if (targetClient?.consentStatus !== "Verified" && !isConsentTask) {
-      addAudit("Blocked task update for consent-locked client until consent refresh", "High");
+      queueAudit("Blocked task update for consent-locked client until consent refresh", "High");
       return;
     }
     setTasks((current) =>
       current.map((task) => (task.id === taskId ? { ...task, status: "Done" } : task))
     );
-    addAudit(`Completed advisor follow-up${targetClient ? ` for ${formatClientName(targetClient.id, clientsState)}` : ""}`);
+    completeTaskRow(taskId).catch((error) => {
+      console.warn("Supabase task completion failed; local completion retained.", error);
+    });
+    queueAudit(`Completed advisor follow-up${targetClient ? ` for ${formatClientName(targetClient.id, clientsState)}` : ""}`);
   }
 
   function createReferral(partner = partnerMatches[0], note = partner?.reason) {
@@ -378,22 +434,24 @@ function App() {
       requestConsentRefresh("Referral recommendation was blocked pending consent verification.");
       return;
     }
-    setReferrals((current) => [
-      {
-        id: `ref-${Date.now()}`,
-        clientId: activeClient.id,
-        partnerId: partner.id,
-        partnerName: partner.name,
-        status: "Submitted",
-        note,
-        stage: "Advisor submitted",
-        value: activeClient.annualPremium ? Math.round(activeClient.annualPremium * 0.45) : 0,
-        expectedValue: activeClient.annualPremium ? Math.round(activeClient.annualPremium * 0.45) : 0,
-        probability: 74,
-      },
-      ...current,
-    ]);
-    addAudit(`Created ${partner.name} referral for ${activeClient.name}`, "Medium");
+    const expectedValue = activeClient.annualPremium ? Math.round(activeClient.annualPremium * 0.45) : 0;
+    const referral = {
+      id: `ref-${Date.now()}`,
+      clientId: activeClient.id,
+      partnerId: partner.id,
+      partnerName: partner.name,
+      status: "Submitted",
+      note,
+      stage: "Advisor submitted",
+      value: expectedValue,
+      expectedValue,
+      probability: 74,
+    };
+    setReferrals((current) => [referral, ...current]);
+    createReferralRow(referral).catch((error) => {
+      console.warn("Supabase referral write failed; local referral retained.", error);
+    });
+    queueAudit(`Created ${partner.name} referral for ${activeClient.name}`, "Medium");
   }
 
   function createExpense() {
@@ -404,35 +462,90 @@ function App() {
     const amount = Number.parseFloat(expenseAmount);
     const normalizedAmount = Math.round(amount * 100) / 100;
     if (!Number.isFinite(amount) || normalizedAmount < 0.01 || normalizedAmount > 10000) {
-      addAudit("Blocked invalid expense input", "Medium");
+      queueAudit("Blocked invalid expense input", "Medium");
       return;
     }
-    setExpenses((current) => [
-      {
-        id: `exp-${Date.now()}`,
-        advisorId: advisor.id,
-        clientId: activeClient.id,
-        category: "Client follow-up",
-        amount: normalizedAmount,
-        status: normalizedAmount > 100 ? "Flagged" : "Pending",
-        date: "2026-06-20",
-      },
-      ...current,
-    ]);
-    addAudit(
+    const expense = {
+      id: `exp-${Date.now()}`,
+      advisorId: activeAdvisor.id,
+      clientId: activeClient.id,
+      category: "Client follow-up",
+      amount: normalizedAmount,
+      status: normalizedAmount > 100 ? "Flagged" : "Pending",
+      date: "2026-06-20",
+    };
+    setExpenses((current) => [expense, ...current]);
+    createExpenseRow(expense).catch((error) => {
+      console.warn("Supabase expense write failed; local expense retained.", error);
+    });
+    queueAudit(
       `Submitted RM ${normalizedAmount} expense for ${activeClient.name}`,
       normalizedAmount > 100 ? "High" : "Low"
     );
     setExpenseAmount("");
   }
 
-  function approveComposerDraft() {
+  async function approveComposerDraft() {
+    setTelegramStatus({ tone: "idle", text: "" });
+    const messageToSend = telegramDraftBody.trim();
+
+    if (!messageToSend) {
+      setTelegramStatus({
+        tone: "error",
+        text: "Telegram message cannot be empty.",
+      });
+      return;
+    }
+
+    if (consentLocked) {
+      blockForConsent("Telegram message sending");
+      requestConsentRefresh("Telegram message was blocked because the selected client is consent-locked.");
+      setTelegramStatus({
+        tone: "error",
+        text: "Telegram blocked until consent is verified.",
+      });
+      return;
+    }
+
+    if (!telegramReady) {
+      queueAudit(`Blocked Telegram send for ${activeClient.name} because chat ID or opt-in is missing`, "Medium");
+      setTelegramStatus({
+        tone: "error",
+        text: "Telegram not ready. Add client chat ID and opt-in in Supabase.",
+      });
+      return;
+    }
+
+    setTelegramStatus({ tone: "sending", text: "Sending Telegram message..." });
+
+    try {
+      const result = await sendTelegramMessage({
+        clientId: activeClient.id,
+        subject: generatedDraft.subject,
+        message: messageToSend,
+      });
+
+      if (result.localOnly) {
+        setTelegramStatus({ tone: "error", text: result.message });
+      } else {
+        setTelegramStatus({ tone: "success", text: "Telegram message sent and audited." });
+        queueAudit(`Sent Telegram message to ${activeClient.name}: ${generatedDraft.subject}`, "Low");
+      }
+    } catch (error) {
+      setTelegramStatus({
+        tone: "error",
+        text: error.message || "Telegram message failed.",
+      });
+      queueAudit(`Telegram message failed for ${activeClient.name}`, "Medium");
+      return;
+    }
+
     if (composerMode === "referral") {
-      createReferral(partnerMatches[0], generatedDraft.body);
+      createReferral(partnerMatches[0], messageToSend);
       return;
     }
     if (composerMode === "compliance") {
-      requestConsentRefresh(generatedDraft.body);
+      requestConsentRefresh(messageToSend);
       return;
     }
     createFollowUp(nextActions[0]?.title ?? generatedDraft.subject, "copilot");
@@ -441,25 +554,27 @@ function App() {
   return (
     <main className="app-shell">
       <TopBar
-        role={role}
-        setRole={(nextRole) => {
-          setRole(nextRole);
-          navigate(nextRole === "Admin" ? "/admin/impact" : "/advisor/today");
-        }}
         businessImpact={businessImpact}
+        dataMode={dataMode}
+        isAuthenticated={isAuthenticated}
+        onLogout={handleLogout}
+        user={activeProfile}
       />
+      {!isAuthenticated ? (
+        <LoginPanel
+          email={loginEmail}
+          error={loginError}
+          isLoggingIn={isLoggingIn}
+          onEmailChange={setLoginEmail}
+          onLogin={handleLogin}
+          onPasswordChange={setLoginPassword}
+          password={loginPassword}
+        />
+      ) : (
       <div className="primary-layout">
         <NavigationShell currentPath={currentPath} navigate={navigate} role={role} />
         <div className="route-surface">
-          {currentPath === "/demo" ? (
-            <DemoPage
-              auditLogs={auditLogs}
-              businessImpact={businessImpact}
-              demoStory={demoStory}
-              navigate={navigate}
-              priorityClients={priorityClients}
-            />
-          ) : role === "Advisor" ? (
+          {role === "Advisor" ? (
             <AdvisorExperience
               activeClient={activeClient}
               activeClientId={activeClientId}
@@ -467,101 +582,151 @@ function App() {
               activeReferrals={activeReferrals}
               activeTasks={activeTasks}
               businessImpact={businessImpact}
+              careMoments={careMoments}
               clientBrief={clientBrief}
+              clientTier={clientTier}
+              clientValueScore={clientValueScore}
               clientsState={clientsState}
               complianceRisk={complianceRisk}
               composerMode={composerMode}
               consentLocked={consentLocked}
               cpd={cpd}
+              activeAdvisor={activeAdvisor}
               createExpense={createExpense}
               createFollowUp={createFollowUp}
               createReferral={createReferral}
               expenseAmount={expenseAmount}
               followUpText={followUpText}
               generatedDraft={generatedDraft}
-              meetings={meetings}
+              giftRecommendation={giftRecommendation}
+              meetingRecommendation={meetingRecommendation}
+              meetings={meetingsState}
               morningBrief={morningBrief}
               navigate={navigate}
               nextActions={nextActions}
               onApproveDraft={approveComposerDraft}
               partnerMatches={partnerMatches}
               priorityClients={priorityClients}
+              relationshipDraft={relationshipDraft}
               requestConsentRefresh={requestConsentRefresh}
               route={currentPath}
               selectClient={selectClient}
               setComposerMode={setComposerMode}
               setExpenseAmount={setExpenseAmount}
               setFollowUpText={setFollowUpText}
+              setTelegramDraftBody={setTelegramDraftBody}
+              telegramDraftBody={telegramDraftBody}
+              telegramReady={telegramReady}
+              telegramStatus={telegramStatus}
               completeTask={completeTask}
             />
           ) : (
             <AdminExperience
               adminMetrics={adminMetrics}
-              adminReviewItems={adminReviewItems}
+              adminReviewItems={adminReviewItemsState}
               auditLogs={auditLogs}
               businessImpact={businessImpact}
               businessImpactRows={businessImpactRows}
               clientsState={clientsState}
-              complianceQueue={complianceQueue}
+              complianceQueue={complianceQueueState}
               consentRequests={consentRequests}
               cpd={cpd}
               expenses={expenses}
               referrals={referrals}
-              resolveConsentRequest={resolveConsentRequest}
+              relationshipSummary={adminRelationship}
               route={currentPath}
               tasks={tasks}
             />
           )}
         </div>
       </div>
+      )}
     </main>
   );
 }
 
-function TopBar({ role, setRole, businessImpact }) {
-  const user = role === "Advisor" ? advisor : admin;
+function LoginPanel({
+  email,
+  error,
+  isLoggingIn,
+  onEmailChange,
+  onLogin,
+  onPasswordChange,
+  password,
+}) {
+  return (
+    <section className="login-shell">
+      <form className="login-panel" onSubmit={onLogin}>
+        <div>
+          <p className="eyebrow">Secure workspace</p>
+          <h2>Sign in to AdvisorFlow AI</h2>
+          <p>
+            Use your Supabase Auth account. Admin and advisor access is loaded from your linked profile.
+          </p>
+        </div>
+        <label>
+          Email
+          <input
+            autoComplete="email"
+            onChange={(event) => onEmailChange(event.target.value)}
+            type="email"
+            value={email}
+          />
+        </label>
+        <label>
+          Password
+          <input
+            autoComplete="current-password"
+            onChange={(event) => onPasswordChange(event.target.value)}
+            type="password"
+            value={password}
+          />
+        </label>
+        {error && <p className="login-error">{error}</p>}
+        <button className="primary-action" disabled={isLoggingIn} type="submit">
+          {isLoggingIn ? "Signing in" : "Sign in"}
+        </button>
+      </form>
+    </section>
+  );
+}
 
+function TopBar({ businessImpact, dataMode, isAuthenticated, onLogout, user }) {
   return (
     <header className="topbar">
       <div className="brand-block">
         <div className="brand-mark">AF</div>
         <div>
-          <p className="eyebrow">Track 1: secure, scalable, sustainable advisory platform</p>
+          <p className="eyebrow">Secure advisory operating platform</p>
           <h1>AdvisorFlow AI</h1>
         </div>
       </div>
       <div className="topbar-actions">
         <div className="score-pill">
-          <span>Judge impact</span>
-          <strong>{businessImpact.trackFit}%</strong>
+          <span>Guardrails</span>
+          <strong>{businessImpact.blockedRisks}</strong>
         </div>
         <div className="identity">
           <span>{user.name}</span>
-          <small>{user.role} demo login</small>
+          <small>{user.role} - {dataMode}</small>
         </div>
-        <div className="segmented" aria-label="Demo role">
-          {["Advisor", "Admin"].map((item) => (
-            <button
-              className={role === item ? "active" : ""}
-              key={item}
-              onClick={() => setRole(item)}
-              type="button"
-            >
-              {item}
-            </button>
-          ))}
-        </div>
+        {isAuthenticated && (
+          <button className="ghost topbar-logout" onClick={onLogout} type="button">
+            Sign out
+          </button>
+        )}
       </div>
     </header>
   );
 }
 
 function NavigationShell({ currentPath, navigate, role }) {
+  const routes = role === "Admin" ? adminRoutes : advisorRoutes;
   return (
     <aside className="side-nav">
       <div>
-        <span>Advisor</span>
-        {advisorRoutes.map(([path, label]) => (
+        <span>{role}</span>
+        {routes.map(([path, label]) => (
           <button
             className={currentPath === path ? "active" : ""}
             key={path}
@@ -572,22 +737,6 @@ function NavigationShell({ currentPath, navigate, role }) {
           </button>
         ))}
       </div>
-      <div>
-        <span>Admin</span>
-        {adminRoutes.map(([path, label]) => (
-          <button
-            className={currentPath === path ? "active" : ""}
-            key={path}
-            onClick={() => navigate(path)}
-            type="button"
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <button className={currentPath === "/demo" ? "active demo-link" : "demo-link"} onClick={() => navigate("/demo")} type="button">
-        Guided Demo
-      </button>
       <small>{role} workspace</small>
     </aside>
   );
@@ -595,13 +744,17 @@ function NavigationShell({ currentPath, navigate, role }) {
 
 function AdvisorExperience(props) {
   const {
+    activeAdvisor,
     activeClient,
     activeClientId,
     activeExpenses,
     activeReferrals,
     activeTasks,
     businessImpact,
+    careMoments,
     clientBrief,
+    clientTier,
+    clientValueScore,
     clientsState,
     complianceRisk,
     composerMode,
@@ -613,6 +766,8 @@ function AdvisorExperience(props) {
     expenseAmount,
     followUpText,
     generatedDraft,
+    giftRecommendation,
+    meetingRecommendation,
     meetings,
     morningBrief,
     navigate,
@@ -620,11 +775,16 @@ function AdvisorExperience(props) {
     onApproveDraft,
     partnerMatches,
     priorityClients,
+    relationshipDraft,
     requestConsentRefresh,
     selectClient,
     setComposerMode,
     setExpenseAmount,
     setFollowUpText,
+    setTelegramDraftBody,
+    telegramDraftBody,
+    telegramReady,
+    telegramStatus,
     completeTask,
     route,
   } = props;
@@ -646,10 +806,13 @@ function AdvisorExperience(props) {
             type="button"
           >
             <span>{displayClientName(client)}</span>
-            <strong>{client.consentStatus === "Verified" ? client.score : "Hold"}</strong>
+            <strong>{client.consentStatus === "Verified" ? client.tier : "Hold"}</strong>
+            {client.consentStatus === "Verified" && (
+              <em>{client.valueScore}/100 value score</em>
+            )}
             <small>
               {client.consentStatus === "Verified"
-                ? client.prioritySignals.join(" / ")
+                ? `${client.tierDescription} / ${client.prioritySignals.slice(0, 2).join(" / ")}`
                 : "Private signals masked / Consent hold"}
             </small>
           </button>
@@ -662,8 +825,22 @@ function AdvisorExperience(props) {
     return (
       <div className="page-stack">
         {clientQueue}
-        <div className="content-grid">
+        <div className="content-grid three">
+          <ClientTierPanel
+            activeClient={activeClient}
+            clientTier={clientTier}
+            clientValueScore={clientValueScore}
+          />
+          <CareMomentsPanel activeClient={activeClient} careMoments={careMoments} />
           <MeetingsPanel clientsState={clientsState} meetings={meetings} />
+        </div>
+        <div className="content-grid">
+          <RelationshipSuggestionsPanel
+            activeClient={activeClient}
+            giftRecommendation={giftRecommendation}
+            meetingRecommendation={meetingRecommendation}
+            relationshipDraft={relationshipDraft}
+          />
           <CompliancePanel
             activeClient={activeClient}
             complianceRisk={complianceRisk}
@@ -678,9 +855,28 @@ function AdvisorExperience(props) {
   if (route === "/advisor/client") {
     return (
       <div className="page-stack">
-        {clientQueue}
+        <SelectedClientBar
+          activeClient={activeClient}
+          activeTasks={activeTasks}
+          clientTier={clientTier}
+          consentLocked={consentLocked}
+          telegramReady={telegramReady}
+        />
         <div className="content-grid">
           <ClientMemory activeClient={activeClient} />
+          <ClientTierPanel
+            activeClient={activeClient}
+            clientTier={clientTier}
+            clientValueScore={clientValueScore}
+          />
+        </div>
+        <div className="content-grid">
+          <RelationshipSuggestionsPanel
+            activeClient={activeClient}
+            giftRecommendation={giftRecommendation}
+            meetingRecommendation={meetingRecommendation}
+            relationshipDraft={relationshipDraft}
+          />
           <CopilotPanel
             activeClient={activeClient}
             clientBrief={clientBrief}
@@ -692,30 +888,79 @@ function AdvisorExperience(props) {
     );
   }
 
+  if (route === "/advisor/ai-profile") {
+    return (
+      <div className="page-stack">
+        <SelectedClientBar
+          activeClient={activeClient}
+          activeTasks={activeTasks}
+          clientTier={clientTier}
+          consentLocked={consentLocked}
+          telegramReady={telegramReady}
+        />
+        <AIProfilePage activeClient={activeClient} consentLocked={consentLocked} />
+      </div>
+    );
+  }
+
   if (route === "/advisor/actions") {
     return (
-      <div className="content-grid three">
-        <ActionComposer
-          composerMode={composerMode}
-          consentLocked={consentLocked}
-          generatedDraft={generatedDraft}
-          onApproveDraft={onApproveDraft}
-          setComposerMode={setComposerMode}
-        />
-        <FollowUpManager
-          activeTasks={activeTasks}
-          completeTask={completeTask}
-          consentLocked={consentLocked}
-          createFollowUp={createFollowUp}
-          followUpText={followUpText}
-          setFollowUpText={setFollowUpText}
-        />
-        <CompliancePanel
+      <div className="page-stack">
+        <SelectedClientBar
           activeClient={activeClient}
-          complianceRisk={complianceRisk}
+          activeTasks={activeTasks}
+          clientTier={clientTier}
           consentLocked={consentLocked}
-          requestConsentRefresh={requestConsentRefresh}
+          telegramReady={telegramReady}
         />
+        <div className="content-grid">
+          <TelegramBotConsole
+            activeClient={activeClient}
+            composerMode={composerMode}
+            consentLocked={consentLocked}
+            generatedDraft={generatedDraft}
+            onSend={onApproveDraft}
+            setComposerMode={setComposerMode}
+            setTelegramDraftBody={setTelegramDraftBody}
+            telegramDraftBody={telegramDraftBody}
+            telegramReady={telegramReady}
+            telegramStatus={telegramStatus}
+          />
+          <TelegramBotWorkflow activeClient={activeClient} />
+        </div>
+        <div className="content-grid three">
+          <FollowUpManager
+            activeTasks={activeTasks}
+            completeTask={completeTask}
+            consentLocked={consentLocked}
+            createFollowUp={createFollowUp}
+            followUpText={followUpText}
+            setFollowUpText={setFollowUpText}
+          />
+          <RelationshipActionPlan careMoments={careMoments} giftRecommendation={giftRecommendation} />
+          <CompliancePanel
+            activeClient={activeClient}
+            complianceRisk={complianceRisk}
+            consentLocked={consentLocked}
+            requestConsentRefresh={requestConsentRefresh}
+          />
+        </div>
+        <div className="content-grid">
+          <PartnerRadar
+            activeClient={activeClient}
+            consentLocked={consentLocked}
+            createReferral={createReferral}
+            partnerMatches={partnerMatches}
+          />
+          <ReferralExpensePanel
+            activeExpenses={activeExpenses}
+            activeReferrals={activeReferrals}
+            consentLocked={consentLocked}
+            createExpense={createExpense}
+            expenseAmount={expenseAmount}
+            setExpenseAmount={setExpenseAmount}
+          />
+        </div>
       </div>
     );
   }
@@ -740,7 +985,7 @@ function AdvisorExperience(props) {
   if (route === "/advisor/learning") {
     return (
       <div className="content-grid">
-        <LearningPanel cpd={cpd} />
+        <LearningPanel activeAdvisor={activeAdvisor} cpd={cpd} />
         <section className="panel">
           <PanelHeader title="Readiness Progress" meta="Advisor development" />
           <ProgressRows
@@ -781,10 +1026,10 @@ function AdvisorExperience(props) {
       <section className="command-hero">
         <div>
           <p className="eyebrow">Advisor Today</p>
-          <h2>One client signal becomes a governed advisor action plan.</h2>
+          <h2>Choose the right client, then move into action.</h2>
           <p>
-            AdvisorFlow connects client memory, CPD, partner matching, follow-ups, expense controls,
-            and audit visibility into one morning command centre.
+            Today is the decision page: scan the priority queue, understand the top care moments,
+            then open the cockpit or action workspace for the selected client.
           </p>
         </div>
         <div className="impact-strip">
@@ -796,63 +1041,343 @@ function AdvisorExperience(props) {
 
       <section className="panel">
         <PanelHeader title="Morning Command Brief" meta="Generated 08:00 MYT" />
-        <div className="brief-grid">
-          {morningBrief.map((item) => (
-            <article className="brief-card" key={item}>
-              {item}
-            </article>
+        <ul className="command-brief-list">
+          {morningBrief.map((item, index) => (
+            <li key={item}>
+              <b>{index + 1}</b>
+              <span>{item}</span>
+            </li>
           ))}
-        </div>
+        </ul>
       </section>
       <div className="content-grid">
         {clientQueue}
+        <CareMomentsPanel activeClient={activeClient} careMoments={careMoments} />
+      </div>
+      <div className="content-grid">
         <MeetingsPanel clientsState={clientsState} meetings={meetings} />
+        <RelationshipSuggestionsPanel
+          activeClient={activeClient}
+          giftRecommendation={giftRecommendation}
+          meetingRecommendation={meetingRecommendation}
+          relationshipDraft={relationshipDraft}
+        />
       </div>
     </div>
   );
 }
 
-function DemoRail({ demoEvents, demoStory }) {
+function SelectedClientBar({ activeClient, activeTasks, clientTier, consentLocked, telegramReady }) {
   return (
-    <aside className="demo-rail">
-      <PanelHeader title="5 Minute Pitch Flow" meta="Live story" />
-      <div className="story-stack">
-        {demoStory.map((step, index) => (
-          <article className="story-step" key={step.title}>
-            <b>{String(index + 1).padStart(2, "0")}</b>
+    <section className={`selected-client-bar ${consentLocked ? "locked" : ""}`}>
+      <div>
+        <span>Selected client</span>
+        <strong>{displayClientName(activeClient)}</strong>
+      </div>
+      <div>
+        <span>Priority</span>
+        <strong>{consentLocked ? "Hold" : clientTier.tier}</strong>
+      </div>
+      <div>
+        <span>Consent</span>
+        <strong>{activeClient.consentStatus}</strong>
+      </div>
+      <div>
+        <span>Telegram</span>
+        <strong>{telegramReady ? "Ready" : "Setup needed"}</strong>
+      </div>
+      <div>
+        <span>Open actions</span>
+        <strong>{activeTasks.length}</strong>
+      </div>
+    </section>
+  );
+}
+
+function ClientTierPanel({ activeClient, clientTier, clientValueScore }) {
+  const locked = activeClient.consentStatus !== "Verified";
+
+  return (
+    <section className="panel tier-panel">
+      <PanelHeader title="Relationship Priority" meta={locked ? "Masked" : `${clientTier.tier} tier`} />
+      {locked ? (
+        <div className="masked-state">
+          <strong>Tier hidden</strong>
+          <p>Value score inputs are masked until consent is verified.</p>
+        </div>
+      ) : (
+        <>
+          <div className={`tier-score tier-${clientTier.tone}`}>
             <div>
-              <strong>{step.title}</strong>
-              <span>{step.detail}</span>
+              <span>{clientTier.range}</span>
+              <strong>{clientTier.tier}</strong>
+            </div>
+            <b>{clientValueScore.score}/100</b>
+          </div>
+          <p>{clientTier.description}</p>
+          <div className="factor-grid">
+            {clientValueScore.factors.map((factor) => (
+              <article key={factor.label}>
+                <div>
+                  <strong>{factor.label}</strong>
+                  <span>{factor.value}</span>
+                </div>
+                <b>{factor.points}/{factor.max}</b>
+              </article>
+            ))}
+          </div>
+          <ul className="compact-list">
+            {clientValueScore.explanation.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+}
+
+function CareMomentsPanel({ activeClient, careMoments }) {
+  return (
+    <section className="panel care-panel">
+      <PanelHeader title="Care Moments" meta={displayClientName(activeClient)} />
+      <div className="stack">
+        {careMoments.map((moment) => (
+          <article className={`care-moment priority-${moment.priority.toLowerCase()}`} key={moment.id}>
+            <div>
+              <span>{moment.type} - {moment.due}</span>
+              <strong>{moment.title}</strong>
+              <p>{moment.reason}</p>
+            </div>
+            <b>{moment.priority}</b>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function RelationshipSuggestionsPanel({
+  activeClient,
+  giftRecommendation,
+  meetingRecommendation,
+  relationshipDraft,
+}) {
+  const locked = activeClient.consentStatus !== "Verified";
+
+  return (
+    <section className="panel relationship-suggestions">
+      <PanelHeader title="Personalized Suggestions" meta={locked ? "Consent-safe" : relationshipDraft.tone} />
+      <div className="suggestion-grid">
+        <article>
+          <span>Gift guardrail</span>
+          <div>
+            <strong>{giftRecommendation.recommendation}</strong>
+            <p>{giftRecommendation.rationale}</p>
+          </div>
+          <b>{giftRecommendation.allowed ? giftRecommendation.budget : "Blocked"}</b>
+        </article>
+        <article>
+          <span>Best slot</span>
+          <div>
+            <strong>{meetingRecommendation.slot}</strong>
+            <p>{meetingRecommendation.reason}</p>
+          </div>
+          <b>{meetingRecommendation.channel}</b>
+        </article>
+        <article>
+          <span>Telegram bridge</span>
+          <div>
+            <strong>{activeClient.telegramOptIn ? "Client opted in" : "Opt-in needed"}</strong>
+            <p>
+              {activeClient.telegramChatId
+                ? "Chat ID is saved. Advisor can send after reviewing the draft."
+                : "Add telegram_chat_id after the client starts the bot."}
+            </p>
+          </div>
+          <b>{activeClient.telegramOptIn && activeClient.telegramChatId ? "Ready" : "Not ready"}</b>
+        </article>
+      </div>
+      <div className="draft-box relationship-draft">
+        <span>{relationshipDraft.channel}</span>
+        <strong>{relationshipDraft.subject}</strong>
+        <p>{relationshipDraft.body}</p>
+      </div>
+      <ul className="compact-list">
+        {giftRecommendation.guardrails.slice(0, 3).map((guardrail) => (
+          <li key={guardrail}>{guardrail}</li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function RelationshipActionPlan({ careMoments, giftRecommendation }) {
+  return (
+    <section className="panel action-plan-panel">
+      <PanelHeader title="Relationship Action Plan" meta={`${careMoments.length} care signals`} />
+      <div className="timeline action-timeline">
+        {careMoments.map((moment, index) => (
+          <article key={moment.id}>
+            <small>Step {index + 1} - {moment.due}</small>
+            <strong>{moment.action}</strong>
+          </article>
+        ))}
+        <article className={giftRecommendation.allowed ? "" : "consent-hold"}>
+          <small>Gift policy</small>
+          <strong>{giftRecommendation.recommendation} - {giftRecommendation.allowed ? giftRecommendation.budget : "blocked"}</strong>
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function TelegramBotConsole({
+  activeClient,
+  composerMode,
+  consentLocked,
+  generatedDraft,
+  onSend,
+  setComposerMode,
+  setTelegramDraftBody,
+  telegramDraftBody,
+  telegramReady,
+  telegramStatus,
+}) {
+  const checks = [
+    ["Consent verified", !consentLocked],
+    ["Client opted in", Boolean(activeClient.telegramOptIn)],
+    ["Chat ID saved", Boolean(activeClient.telegramChatId)],
+    ["Advisor approval required", true],
+  ];
+
+  return (
+    <section className="panel telegram-console">
+      <PanelHeader title="Telegram Bot Console" meta={telegramReady ? "Ready to send" : "Setup needed"} />
+      <div className="bot-status-card">
+        <div>
+          <span>Selected client</span>
+          <strong>{displayClientName(activeClient)}</strong>
+          <p>
+            {telegramReady
+              ? "This client can receive advisor-approved Telegram bot messages."
+              : "Complete the readiness checklist before sending through the bot."}
+          </p>
+        </div>
+        <b className={telegramReady ? "status ready" : "status pending"}>
+          {telegramReady ? "Ready" : "Blocked"}
+        </b>
+      </div>
+
+      <div className="bot-check-grid">
+        {checks.map(([label, passed]) => (
+          <article key={label} className={passed ? "passed" : "blocked"}>
+            <span>{passed ? "Passed" : "Needed"}</span>
+            <strong>{label}</strong>
+          </article>
+        ))}
+      </div>
+
+      <div className="mode-switch bot-mode-switch">
+        {[
+          ["follow-up", "Care note"],
+          ["referral", "Referral"],
+          ["compliance", "Escalation"],
+        ].map(([mode, label]) => (
+          <button
+            className={composerMode === mode ? "active" : ""}
+            key={mode}
+            onClick={() => setComposerMode(mode)}
+            type="button"
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="bot-chat-preview">
+        <article className="bot-bubble bot">
+          <span>AdvisorFlow Bot</span>
+          <p>{telegramDraftBody || generatedDraft.body}</p>
+        </article>
+        <article className="bot-bubble client">
+          <span>Client</span>
+          <p>Receives this in Telegram after the advisor clicks send.</p>
+        </article>
+      </div>
+
+      <label className="telegram-editor">
+        Edit before sending
+        <textarea
+          onChange={(event) => setTelegramDraftBody(event.target.value)}
+          rows="7"
+          value={telegramDraftBody}
+        />
+      </label>
+
+      {telegramStatus.text && (
+        <p className={`delivery-status delivery-${telegramStatus.tone}`}>
+          {telegramStatus.text}
+        </p>
+      )}
+
+      <button
+        className="primary-action"
+        disabled={telegramStatus.tone === "sending"}
+        onClick={onSend}
+        type="button"
+      >
+        {telegramStatus.tone === "sending" ? "Sending Telegram" : "Send Bot Message And Log"}
+      </button>
+    </section>
+  );
+}
+
+function TelegramBotWorkflow({ activeClient }) {
+  return (
+    <section className="panel telegram-workflow">
+      <PanelHeader title="How The Bot Works" meta="Current MVP" />
+      <div className="story-stack">
+        {[
+          ["1", "Client starts bot", "Client must open the Telegram bot and send /start before messages can be delivered."],
+          ["2", "Chat ID stored", "Advisor/admin stores telegram_chat_id and telegram_opt_in on the Supabase client row."],
+          ["3", "Advisor approves draft", "AdvisorFlow generates a safe draft, but the advisor must click send."],
+          ["4", "Edge Function sends", "Supabase send-telegram function sends the message and records delivery/audit logs."],
+        ].map(([step, title, detail]) => (
+          <article className="story-step" key={step}>
+            <b>{step}</b>
+            <div>
+              <strong>{title}</strong>
+              <span>{detail}</span>
             </div>
           </article>
         ))}
       </div>
-      <div className="signal-feed">
-        <strong>What changed overnight</strong>
-        {demoEvents.slice(0, 4).map((event) => (
-          <article key={event.id}>
-            <span>{event.time}</span>
-            <p>{event.title}</p>
-            <b>{event.impact}</b>
-          </article>
-        ))}
+
+      <div className="mini-section top-gap">
+        <article className="list-row">
+          <div>
+            <strong>Current capability</strong>
+            <span>Outbound advisor-approved Telegram messages.</span>
+          </div>
+          <b>Built</b>
+        </article>
+        <article className="list-row severity-medium">
+          <div>
+            <strong>Next chatbot step</strong>
+            <span>Inbound Telegram webhook to record client replies and create client signals.</span>
+          </div>
+          <b>Next</b>
+        </article>
+        <article className="list-row">
+          <div>
+            <strong>Supabase field</strong>
+            <span>{activeClient.telegramChatId ? "telegram_chat_id is saved." : "telegram_chat_id is missing for this client."}</span>
+          </div>
+          <b>{activeClient.telegramOptIn ? "Opted in" : "No opt-in"}</b>
+        </article>
       </div>
-      <div className="judge-map">
-        {[
-          ["Technical", "30%"],
-          ["Content", "20%"],
-          ["Pitching", "20%"],
-          ["Design", "15%"],
-          ["Track Fit", "10%"],
-          ["Growth", "5%"],
-        ].map(([label, value]) => (
-          <span key={label}>
-            {label}
-            <b>{value}</b>
-          </span>
-        ))}
-      </div>
-    </aside>
+    </section>
   );
 }
 
@@ -898,13 +1423,23 @@ function CopilotPanel({ activeClient, clientBrief, complianceRisk, nextActions }
   );
 }
 
-function ActionComposer({ composerMode, consentLocked, generatedDraft, onApproveDraft, setComposerMode }) {
+function ActionComposer({
+  composerMode,
+  consentLocked,
+  generatedDraft,
+  onApproveDraft,
+  setComposerMode,
+  setTelegramDraftBody,
+  telegramDraftBody,
+  telegramReady,
+  telegramStatus,
+}) {
   return (
     <section className="panel action-composer">
-      <PanelHeader title="Action Composer" meta="Advisor approved" />
+      <PanelHeader title="Action Composer" meta={telegramReady ? "Telegram ready" : "Telegram setup needed"} />
       <div className="mode-switch">
         {[
-          ["follow-up", "Follow-up"],
+          ["follow-up", "Care note"],
           ["referral", "Referral"],
           ["compliance", "Escalation"],
         ].map(([mode, label]) => (
@@ -921,15 +1456,36 @@ function ActionComposer({ composerMode, consentLocked, generatedDraft, onApprove
       <div className="draft-box">
         <span>{generatedDraft.channel}</span>
         <strong>{generatedDraft.subject}</strong>
-        <p>{generatedDraft.body}</p>
+        <label className="telegram-editor compact">
+          Message to send
+          <textarea
+            onChange={(event) => setTelegramDraftBody(event.target.value)}
+            rows="6"
+            value={telegramDraftBody}
+          />
+        </label>
         <ul>
           {generatedDraft.disclaimers.map((item) => (
             <li key={item}>{item}</li>
           ))}
         </ul>
       </div>
-      <button className="primary-action" onClick={onApproveDraft} type="button">
-        {consentLocked && composerMode !== "compliance" ? "Log Blocked Action" : "Approve And Save"}
+      {telegramStatus.text && (
+        <p className={`delivery-status delivery-${telegramStatus.tone}`}>
+          {telegramStatus.text}
+        </p>
+      )}
+      <button
+        className="primary-action"
+        disabled={telegramStatus.tone === "sending"}
+        onClick={onApproveDraft}
+        type="button"
+      >
+        {telegramStatus.tone === "sending"
+          ? "Sending Telegram"
+          : consentLocked && composerMode !== "compliance"
+            ? "Log Blocked Action"
+            : "Send Telegram And Save"}
       </button>
     </section>
   );
@@ -986,11 +1542,40 @@ function ClientMemory({ activeClient }) {
                   <span key={need}>{need}</span>
                 ))}
               </div>
+              <div className="relationship-profile-grid">
+                <article>
+                  <span>Personality</span>
+                  <strong>{activeClient.personality}</strong>
+                </article>
+                <article>
+                  <span>Channel</span>
+                  <strong>{activeClient.preferredChannel}</strong>
+                </article>
+                <article>
+                  <span>Telegram</span>
+                  <strong>{activeClient.telegramOptIn && activeClient.telegramChatId ? "Ready" : "Setup needed"}</strong>
+                </article>
+                <article>
+                  <span>Tone</span>
+                  <strong>{activeClient.preferredTone}</strong>
+                </article>
+                <article>
+                  <span>Life event</span>
+                  <strong>{activeClient.lifeEvent}</strong>
+                </article>
+              </div>
+              <p className="relationship-note">{activeClient.relationshipNotes}</p>
+              <div className="tag-row">
+                {(activeClient.interests ?? []).map((interest) => (
+                  <span key={interest}>{interest}</span>
+                ))}
+              </div>
               <ul className="memory-list">
                 {activeClient.memory.map((item) => (
                   <li key={item}>{item}</li>
                 ))}
               </ul>
+              <AIClientProfile activeClient={activeClient} />
             </>
           )}
         </div>
@@ -1010,6 +1595,281 @@ function ClientMemory({ activeClient }) {
           )}
         </div>
       </div>
+    </section>
+  );
+}
+
+const aiProfileStore = {
+  profiles: new Map(),
+  inflight: new Map(),
+  listeners: new Set(),
+  subscribe(listener) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  },
+  notify() {
+    this.listeners.forEach((listener) => listener());
+  },
+  get(clientId) {
+    return this.profiles.get(clientId);
+  },
+  isLoading(clientId) {
+    return this.inflight.has(clientId);
+  },
+  async generate(client) {
+    if (!client || this.inflight.has(client.id)) return;
+    const promise = generateClientProfile(client)
+      .then((result) => {
+        this.profiles.set(client.id, { result, error: "" });
+      })
+      .catch((err) => {
+        this.profiles.set(client.id, {
+          result: this.profiles.get(client.id)?.result,
+          error: err.message || "Failed to generate profile.",
+        });
+      })
+      .finally(() => {
+        this.inflight.delete(client.id);
+        this.notify();
+      });
+    this.inflight.set(client.id, promise);
+    this.notify();
+  },
+};
+
+function useClientProfile(activeClient) {
+  const [, force] = useState(0);
+
+  useEffect(() => {
+    const unsubscribe = aiProfileStore.subscribe(() => force((n) => n + 1));
+    return unsubscribe;
+  }, []);
+
+  const entry = activeClient ? aiProfileStore.get(activeClient.id) : undefined;
+  const loading = activeClient ? aiProfileStore.isLoading(activeClient.id) : false;
+
+  return {
+    profile: entry?.result,
+    loading,
+    error: entry?.error || "",
+    runAnalysis: () => aiProfileStore.generate(activeClient),
+  };
+}
+
+function renderListBlock(title, items) {
+  const list = (items ?? []).filter(Boolean);
+  if (list.length === 0) return null;
+  return (
+    <div>
+      <h5>{title}</h5>
+      <ul>
+        {list.map((item) => (
+          <li key={typeof item === "string" ? item : item.interest}>
+            {typeof item === "string" ? (
+              item
+            ) : (
+              <>
+                <strong>{item.interest}</strong>
+                {item.evidence ? <span className="ai-evidence"> - {item.evidence}</span> : null}
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function copyText(text) {
+  if (text && navigator.clipboard) {
+    navigator.clipboard.writeText(text).catch(() => {});
+  }
+}
+
+function AIClientProfile({ activeClient }) {
+  const { profile, loading, error, runAnalysis } = useClientProfile(activeClient);
+
+  return (
+    <section className="ai-profile-card">
+      <header className="ai-profile-head">
+        <div>
+          <span className="ai-profile-eyebrow">AI Behavioural Profile</span>
+          <strong>Detailed personality and interest read for tailored outreach</strong>
+        </div>
+        <button className="primary-action" disabled={loading} onClick={runAnalysis} type="button">
+          {loading ? "Analyzing..." : profile ? "Regenerate" : "Generate with AI"}
+        </button>
+      </header>
+
+      {error && <p className="ai-profile-error">{error}</p>}
+
+      {!profile && !loading && !error && (
+        <p className="ai-profile-hint">
+          Generate a deep profile from this client's notes, timeline, life events and signals.
+          Open the AI Profile page in the side nav for the full view.
+        </p>
+      )}
+
+      {profile && (
+        <div className="ai-profile-body">
+          <p className="ai-profile-summary">{profile.detailedSummary || profile.summary}</p>
+
+          <div className="ai-profile-grid">
+            {renderListBlock("Personality traits", profile.personalityTraits)}
+            {renderListBlock("Core motivations", profile.coreMotivations)}
+            {renderListBlock("Likely interests", profile.inferredInterests)}
+            {renderListBlock("Lifestyle signals", profile.lifestyleSignals)}
+          </div>
+
+          {profile.communicationStyle && (
+            <div className="ai-profile-style">
+              <span>Communication style</span>
+              <strong>{profile.communicationStyle}</strong>
+            </div>
+          )}
+
+          {profile.telegramMessageSuggestion && (
+            <div className="ai-telegram-suggestion">
+              <div className="ai-telegram-head">
+                <span>Telegram tone draft</span>
+                <button
+                  className="secondary-action"
+                  onClick={() => copyText(profile.telegramMessageSuggestion)}
+                  type="button"
+                >
+                  Copy
+                </button>
+              </div>
+              <p>{profile.telegramMessageSuggestion}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AIProfilePage({ activeClient, consentLocked }) {
+  const { profile, loading, error, runAnalysis } = useClientProfile(activeClient);
+
+  if (!activeClient) {
+    return (
+      <section className="panel">
+        <PanelHeader title="AI Client Profile" meta="Deep personality and interest read" />
+        <p>Select a client from the priority queue above to generate a profile.</p>
+      </section>
+    );
+  }
+
+  if (consentLocked) {
+    return (
+      <section className="panel">
+        <PanelHeader title="AI Client Profile" meta="Blocked by consent" />
+        <div className="masked-state">
+          <strong>Consent refresh required</strong>
+          <p>
+            AI summaries are blocked until {displayClientName(activeClient)} refreshes consent. This
+            protects private notes, financial values and timeline data.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="panel ai-profile-page">
+      <PanelHeader
+        title={`AI Profile - ${displayClientName(activeClient)}`}
+        meta={`${activeClient.segment}${activeClient.tier ? ` - ${activeClient.tier} tier` : ""} - ${activeClient.consentStatus}`}
+      />
+
+      <div className="ai-profile-toolbar">
+        <div className="ai-profile-context">
+          <span>
+            {activeClient.occupation} - {activeClient.location} - Age {activeClient.age}
+          </span>
+          <small>
+            {activeClient.valueScore ? `Value ${activeClient.valueScore}/100 - ` : ""}
+            Engagement urgency {activeClient.engagementUrgency} - Care urgency {activeClient.careUrgency}
+          </small>
+        </div>
+        <button className="primary-action" disabled={loading} onClick={runAnalysis} type="button">
+          {loading ? "Analyzing client signals..." : profile ? "Regenerate profile" : "Generate AI profile"}
+        </button>
+      </div>
+
+      {error && <p className="ai-profile-error">{error}</p>}
+
+      {!profile && !loading && !error && (
+        <div className="ai-profile-empty">
+          <h4>What this page does</h4>
+          <p>
+            Reads every signal on this client: personality cues, interests, life events, timeline,
+            relationship notes, segment, and priority signals. Then it summarises a behavioural
+            profile you can use to tailor a Telegram message that feels personal.
+          </p>
+          <ul>
+            <li>Detailed personality and interest narrative</li>
+            <li>Lifestyle signals and core motivations</li>
+            <li>Topic hooks and gift ideas grounded in the timeline</li>
+            <li>Telegram tone guidance plus a ready-to-edit draft</li>
+          </ul>
+        </div>
+      )}
+
+      {profile && (
+        <div className="ai-profile-page-body">
+          <article className="ai-profile-summary-card">
+            <h4>Behavioural summary</h4>
+            <p>{profile.detailedSummary || profile.summary}</p>
+          </article>
+
+          <div className="ai-profile-grid wide">
+            {renderListBlock("Personality traits", profile.personalityTraits)}
+            {renderListBlock("Core motivations", profile.coreMotivations)}
+            {renderListBlock("Likely interests", profile.inferredInterests)}
+            {renderListBlock("Lifestyle signals", profile.lifestyleSignals)}
+            {renderListBlock("Topic hooks", profile.topicHooks)}
+            {renderListBlock("Gift ideas", profile.giftIdeas)}
+            {renderListBlock("Do", profile.doList)}
+            {renderListBlock("Avoid", profile.avoidList)}
+          </div>
+
+          {(profile.communicationStyle || profile.toneGuidance) && (
+            <div className="ai-profile-style-row">
+              {profile.communicationStyle && (
+                <div className="ai-profile-style">
+                  <span>Communication style</span>
+                  <strong>{profile.communicationStyle}</strong>
+                </div>
+              )}
+              {profile.toneGuidance && (
+                <div className="ai-profile-style">
+                  <span>Tone guidance</span>
+                  <strong>{profile.toneGuidance}</strong>
+                </div>
+              )}
+            </div>
+          )}
+
+          {profile.telegramMessageSuggestion && (
+            <div className="ai-telegram-suggestion large">
+              <div className="ai-telegram-head">
+                <span>Telegram-ready draft</span>
+                <button
+                  className="secondary-action"
+                  onClick={() => copyText(profile.telegramMessageSuggestion)}
+                  type="button"
+                >
+                  Copy draft
+                </button>
+              </div>
+              <p>{profile.telegramMessageSuggestion}</p>
+              <small>Review and adapt before sending. No figures or product names included.</small>
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }
@@ -1080,10 +1940,10 @@ function PartnerRadar({ activeClient, consentLocked, createReferral, partnerMatc
   );
 }
 
-function LearningPanel({ cpd }) {
+function LearningPanel({ activeAdvisor, cpd }) {
   return (
     <section className="panel">
-      <PanelHeader title="CPD Readiness" meta={`${advisor.cpdHours}/${advisor.cpdTarget} hours`} />
+      <PanelHeader title="CPD Readiness" meta={`${activeAdvisor.cpdHours}/${activeAdvisor.cpdTarget} hours`} />
       <div className="stack">
         {cpd.slice(0, 4).map((course) => (
           <article className="list-row" key={course.id}>
@@ -1187,26 +2047,26 @@ function AdminExperience({
   cpd,
   expenses,
   referrals,
-  resolveConsentRequest,
+  relationshipSummary,
   route,
   tasks,
 }) {
   const flaggedExpenses = expenses.filter((expense) => ["Flagged", "Masked"].includes(expense.status));
   const highRiskLogs = auditLogs.filter((log) => log.risk === "High");
-  const openConsentRequests = consentRequests.filter((request) => request.status === "Pending admin review");
+  const openConsentRequests = consentRequests.filter((request) => request.status.startsWith("Pending"));
 
   const impactHero = (
       <section className="command-hero admin-hero">
         <div>
           <p className="eyebrow">Organisation-wide capability</p>
-          <h2>Admin sees productivity, partner pipeline, CPD growth, and compliance health in one view.</h2>
+          <h2>Admin sees relationship priority, care risk, partner pipeline, and compliance health in one view.</h2>
           <p>
-            This is the scalability story for AAG x ASG: advisors act faster, leaders see risk earlier,
-            and partner opportunities stop disappearing into private chats.
+            This read-only view keeps leaders informed while advisors own the relationship actions,
+            consent refreshes, and client follow-up workflow.
           </p>
         </div>
         <div className="impact-strip">
-          <ImpactStat label="Track Fit" value={`${businessImpact.trackFit}%`} />
+          <ImpactStat label="Blocked Risks" value={businessImpact.blockedRisks} />
           <ImpactStat label="Readiness" value={`${businessImpact.cpdReadiness}%`} />
           <ImpactStat label="Compliance" value={businessImpact.complianceHealth} />
         </div>
@@ -1215,7 +2075,7 @@ function AdminExperience({
 
   const impactDashboard = (
       <section className="panel span-all">
-        <PanelHeader title="Business Impact Dashboard" meta="Judge scoring view" />
+        <PanelHeader title="Business Impact Dashboard" meta="Operational view" />
         <div className="metrics-grid">
           {adminMetrics.map((metric) => (
             <article className={`metric metric-${metric.tone}`} key={metric.label}>
@@ -1234,6 +2094,44 @@ function AdminExperience({
               <b>{item.displayValue}</b>
             </article>
           ))}
+        </div>
+      </section>
+  );
+
+  const relationshipPanel = (
+      <section className="panel span-all">
+        <PanelHeader title="Relationship Intelligence Metrics" meta="Read-only admin view" />
+        <div className="tier-distribution">
+          {Object.entries(relationshipSummary.tierCounts).map(([tier, count]) => (
+            <article key={tier}>
+              <span>{tier}</span>
+              <strong>{count}</strong>
+            </article>
+          ))}
+        </div>
+        <div className="content-grid">
+          <div className="stack">
+            {relationshipSummary.activeCareMoments.slice(0, 4).map((moment) => (
+              <article className={`list-row priority-${moment.priority.toLowerCase()}`} key={`${moment.clientId}-${moment.id}`}>
+                <div>
+                  <strong>{moment.clientName}</strong>
+                  <span>{moment.type} - {moment.title}</span>
+                </div>
+                <b>{moment.due}</b>
+              </article>
+            ))}
+          </div>
+          <div className="stack">
+            {relationshipSummary.topTierClients.map((client) => (
+              <article className="list-row" key={client.id}>
+                <div>
+                  <strong>{client.name}</strong>
+                  <span>{client.tier} relationship priority</span>
+                </div>
+                <b>{client.score}/100</b>
+              </article>
+            ))}
+          </div>
         </div>
       </section>
   );
@@ -1258,18 +2156,7 @@ function AdminExperience({
                 <strong>{formatClientName(request.clientId, clientsState)}</strong>
                 <span>{request.reason}</span>
               </div>
-              {request.status === "Pending admin review" ? (
-                <div className="review-actions">
-                  <button onClick={() => resolveConsentRequest(request.id, "Approved")} type="button">
-                    Approve
-                  </button>
-                  <button onClick={() => resolveConsentRequest(request.id, "Rejected")} type="button">
-                    Reject
-                  </button>
-                </div>
-              ) : (
-                <b>{request.status}</b>
-              )}
+              <b>{request.status}</b>
             </article>
           ))}
           {complianceQueue.map((item) => (
@@ -1296,7 +2183,7 @@ function AdminExperience({
 
   const reviewPanel = (
       <section className="panel">
-        <PanelHeader title="Admin Review Board" meta={`${adminReviewItems.length} controls`} />
+        <PanelHeader title="Admin Signal Board" meta={`${adminReviewItems.length} visible items`} />
         <div className="stack">
           {adminReviewItems.map((item) => (
             <article className={`list-row severity-${item.priority.toLowerCase()}`} key={item.id}>
@@ -1353,7 +2240,7 @@ function AdminExperience({
 
   const taskPanel = (
       <section className="panel">
-        <PanelHeader title="Task Controls" meta={`${tasks.length} actions`} />
+        <PanelHeader title="Task Visibility" meta={`${tasks.length} actions`} />
         <div className="stack">
           {tasks.map((task) => (
             <article className={`list-row severity-${task.severity}`} key={task.id}>
@@ -1371,6 +2258,7 @@ function AdminExperience({
   if (route === "/admin/compliance") {
     return (
       <div className="admin-layout">
+        {relationshipPanel}
         {compliancePanel}
         {reviewPanel}
         {taskPanel}
@@ -1381,6 +2269,7 @@ function AdminExperience({
   if (route === "/admin/referrals") {
     return (
       <div className="admin-layout">
+        {relationshipPanel}
         {referralPanel}
         {coachingPanel}
         {reviewPanel}
@@ -1391,6 +2280,7 @@ function AdminExperience({
   if (route === "/admin/audit") {
     return (
       <div className="admin-layout">
+        {relationshipPanel}
         {auditPanel}
         {compliancePanel}
         {taskPanel}
@@ -1402,59 +2292,9 @@ function AdminExperience({
     <div className="admin-layout">
       {impactHero}
       {impactDashboard}
+      {relationshipPanel}
       {referralPanel}
       {compliancePanel}
-    </div>
-  );
-}
-
-function DemoPage({ auditLogs, businessImpact, demoStory, navigate, priorityClients }) {
-  return (
-    <div className="demo-page">
-      <section className="command-hero">
-        <div>
-          <p className="eyebrow">Guided Demo</p>
-          <h2>A five-minute story from overnight signal to governed business impact.</h2>
-          <p>
-            Walk the judges through the advisor path first, prove consent masking, then end on admin impact
-            and auditability.
-          </p>
-        </div>
-        <div className="impact-strip">
-          <ImpactStat label="Track Fit" value={`${businessImpact.trackFit}%`} />
-          <ImpactStat label="Blocked Risks" value={businessImpact.blockedRisks} />
-          <ImpactStat label="Pipeline Value" value={businessImpact.referralPipeline} />
-        </div>
-      </section>
-      <DemoRail demoEvents={demoEvents} demoStory={demoStory} />
-      <section className="panel">
-        <PanelHeader title="Demo Controls" meta="Suggested path" />
-        <div className="demo-actions">
-          {[
-            ["/advisor/today", "Start Morning Brief"],
-            ["/advisor/client", `Open ${displayClientName(priorityClients[0])}`],
-            ["/advisor/actions", "Show Blocked Actions"],
-            ["/admin/impact", "Close With Impact"],
-          ].map(([path, label]) => (
-            <button key={path} onClick={() => navigate(path)} type="button">
-              {label}
-            </button>
-          ))}
-        </div>
-      </section>
-      <section className="panel">
-        <PanelHeader title="Latest Audit Evidence" meta={`${auditLogs.length} logs`} />
-        <div className="audit-table">
-          {auditLogs.slice(0, 4).map((log) => (
-            <article key={log.id}>
-              <span>{log.time}</span>
-              <strong>{log.actor}</strong>
-              <p>{log.action}</p>
-              <b className={`risk-${log.risk.toLowerCase()}`}>{log.risk}</b>
-            </article>
-          ))}
-        </div>
-      </section>
     </div>
   );
 }
