@@ -782,6 +782,104 @@ h3 {
   color: #8a321f;
 }
 
+.telegram-console,
+.telegram-workflow {
+  background: linear-gradient(180deg, #ffffff, #f7fbf9);
+}
+
+.bot-status-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid #dbe5dd;
+  border-radius: 10px;
+  background: #fbfdfb;
+}
+
+.bot-status-card span,
+.bot-check-grid span,
+.bot-bubble span {
+  color: #66756e;
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.bot-status-card strong {
+  display: block;
+  margin-top: 3px;
+  color: #203a31;
+  font-size: 1.2rem;
+}
+
+.bot-status-card p {
+  margin: 6px 0 0;
+  color: #56675f;
+}
+
+.bot-check-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.bot-check-grid article {
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid #dbe5dd;
+  border-radius: 10px;
+  background: #fbfdfb;
+}
+
+.bot-check-grid article.blocked {
+  border-color: #e6ad9a;
+  background: #fff7f3;
+}
+
+.bot-check-grid strong {
+  display: block;
+  margin-top: 3px;
+  color: #203a31;
+  line-height: 1.25;
+}
+
+.bot-chat-preview {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 14px;
+  border: 1px solid #dbe5dd;
+  border-radius: 12px;
+  background: #eef6f2;
+}
+
+.bot-bubble {
+  max-width: 86%;
+  padding: 12px;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 10px 22px rgba(47, 67, 57, 0.08);
+}
+
+.bot-bubble p {
+  margin: 5px 0 0;
+  color: #31483f;
+  white-space: pre-line;
+}
+
+.bot-bubble.client {
+  justify-self: end;
+  background: #135f4e;
+}
+
+.bot-bubble.client span,
+.bot-bubble.client p {
+  color: #ffffff;
+}
+
 .tier-distribution {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-bottom: 12px;

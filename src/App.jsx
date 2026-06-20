@@ -55,6 +55,7 @@ const advisorRoutes = [
   ["/advisor/clients", "Clients"],
   ["/advisor/client", "Cockpit"],
   ["/advisor/actions", "Actions"],
+  ["/advisor/telegram", "Telegram Bot"],
   ["/advisor/partners", "Partners"],
   ["/advisor/learning", "Learning"],
   ["/advisor/claims", "Claims"],
@@ -893,6 +894,25 @@ function AdvisorExperience(props) {
     );
   }
 
+  if (route === "/advisor/telegram") {
+    return (
+      <div className="page-stack">
+        {clientQueue}
+        <div className="content-grid">
+          <TelegramBotConsole
+            activeClient={activeClient}
+            consentLocked={consentLocked}
+            generatedDraft={generatedDraft}
+            onSend={onApproveDraft}
+            telegramReady={telegramReady}
+            telegramStatus={telegramStatus}
+          />
+          <TelegramBotWorkflow activeClient={activeClient} />
+        </div>
+      </div>
+    );
+  }
+
   if (route === "/advisor/partners") {
     return (
       <div className="content-grid">
@@ -1120,6 +1140,125 @@ function RelationshipActionPlan({ careMoments, giftRecommendation }) {
         <article className={giftRecommendation.allowed ? "" : "consent-hold"}>
           <small>Gift policy</small>
           <strong>{giftRecommendation.recommendation} - {giftRecommendation.allowed ? giftRecommendation.budget : "blocked"}</strong>
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function TelegramBotConsole({
+  activeClient,
+  consentLocked,
+  generatedDraft,
+  onSend,
+  telegramReady,
+  telegramStatus,
+}) {
+  const checks = [
+    ["Consent verified", !consentLocked],
+    ["Client opted in", Boolean(activeClient.telegramOptIn)],
+    ["Chat ID saved", Boolean(activeClient.telegramChatId)],
+    ["Advisor approval required", true],
+  ];
+
+  return (
+    <section className="panel telegram-console">
+      <PanelHeader title="Telegram Bot Console" meta={telegramReady ? "Ready to send" : "Setup needed"} />
+      <div className="bot-status-card">
+        <div>
+          <span>Selected client</span>
+          <strong>{displayClientName(activeClient)}</strong>
+          <p>
+            {telegramReady
+              ? "This client can receive advisor-approved Telegram bot messages."
+              : "Complete the readiness checklist before sending through the bot."}
+          </p>
+        </div>
+        <b className={telegramReady ? "status ready" : "status pending"}>
+          {telegramReady ? "Ready" : "Blocked"}
+        </b>
+      </div>
+
+      <div className="bot-check-grid">
+        {checks.map(([label, passed]) => (
+          <article key={label} className={passed ? "passed" : "blocked"}>
+            <span>{passed ? "Passed" : "Needed"}</span>
+            <strong>{label}</strong>
+          </article>
+        ))}
+      </div>
+
+      <div className="bot-chat-preview">
+        <article className="bot-bubble bot">
+          <span>AdvisorFlow Bot</span>
+          <p>{generatedDraft.body}</p>
+        </article>
+        <article className="bot-bubble client">
+          <span>Client</span>
+          <p>Receives this in Telegram after the advisor clicks send.</p>
+        </article>
+      </div>
+
+      {telegramStatus.text && (
+        <p className={`delivery-status delivery-${telegramStatus.tone}`}>
+          {telegramStatus.text}
+        </p>
+      )}
+
+      <button
+        className="primary-action"
+        disabled={telegramStatus.tone === "sending"}
+        onClick={onSend}
+        type="button"
+      >
+        {telegramStatus.tone === "sending" ? "Sending Telegram" : "Send Bot Message And Log"}
+      </button>
+    </section>
+  );
+}
+
+function TelegramBotWorkflow({ activeClient }) {
+  return (
+    <section className="panel telegram-workflow">
+      <PanelHeader title="How The Bot Works" meta="Current MVP" />
+      <div className="story-stack">
+        {[
+          ["1", "Client starts bot", "Client must open the Telegram bot and send /start before messages can be delivered."],
+          ["2", "Chat ID stored", "Advisor/admin stores telegram_chat_id and telegram_opt_in on the Supabase client row."],
+          ["3", "Advisor approves draft", "AdvisorFlow generates a safe draft, but the advisor must click send."],
+          ["4", "Edge Function sends", "Supabase send-telegram function sends the message and records delivery/audit logs."],
+        ].map(([step, title, detail]) => (
+          <article className="story-step" key={step}>
+            <b>{step}</b>
+            <div>
+              <strong>{title}</strong>
+              <span>{detail}</span>
+            </div>
+          </article>
+        ))}
+      </div>
+
+      <div className="mini-section top-gap">
+        <article className="list-row">
+          <div>
+            <strong>Current capability</strong>
+            <span>Outbound advisor-approved Telegram messages.</span>
+          </div>
+          <b>Built</b>
+        </article>
+        <article className="list-row severity-medium">
+          <div>
+            <strong>Next chatbot step</strong>
+            <span>Inbound Telegram webhook to record client replies and create client signals.</span>
+          </div>
+          <b>Next</b>
+        </article>
+        <article className="list-row">
+          <div>
+            <strong>Supabase field</strong>
+            <span>{activeClient.telegramChatId ? "telegram_chat_id is saved." : "telegram_chat_id is missing for this client."}</span>
+          </div>
+          <b>{activeClient.telegramOptIn ? "Opted in" : "No opt-in"}</b>
         </article>
       </div>
     </section>
