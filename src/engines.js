@@ -491,24 +491,78 @@ export function getPriorityClients(clients, tasks) {
 }
 
 export function buildMorningBrief(clients, tasks, meetings, signals = []) {
+  return buildMorningBriefActions(clients, tasks, meetings, signals).map((item) => item.label);
+}
+
+export function buildMorningBriefActions(clients, tasks, meetings, signals = []) {
   const verifiedClients = clients.filter((client) => client.consentStatus === "Verified");
   const lockedCount = clients.length - verifiedClients.length;
   const priority = getPriorityClients(verifiedClients, tasks)[0];
   const overdue = tasks.filter((task) => task.status === "Overdue");
   const meetingsToday = meetings.filter((meeting) => !meeting.time.toLowerCase().includes("tomorrow"));
   const highSignals = signals.filter((signal) => signal.confidence >= 90);
+  const firstOverdue = overdue[0];
+  const firstMeeting = meetingsToday[0];
+  const firstSignal = highSignals[0];
   const priorityLine = priority
     ? `${priority.name} is the highest verified priority because of ${priority.prioritySignals[0].toLowerCase()} and ${priority.openTasks} active action item(s).`
     : "No verified client records are available yet; start with consent refreshes before generating private recommendations.";
 
   return [
-    priorityLine,
-    `${meetingsToday.length} client meetings are scheduled today; prepare concise summaries before each appointment.`,
-    `${overdue.length} overdue follow-up(s) need attention before new recommendations are issued.`,
-    highSignals.length > 0
-      ? `${highSignals.length} high-confidence overnight signal(s) can be converted into compliant next-best actions.`
-      : "No high-confidence overnight signals require immediate escalation.",
-    `Security reminder: ${lockedCount} consent-gated record(s) stay masked until status is verified.`,
+    {
+      id: "priority",
+      label: priorityLine,
+      detail: priority ? "Open the existing action workspace and prepare a service-first message." : "Open the client list to refresh consent first.",
+      clientId: priority?.id ?? null,
+      targetPath: priority ? "/advisor/actions" : "/advisor/clients",
+      draftAction: priority
+        ? `${priority.prioritySignals[0]} follow-up with ${priority.openTasks} active action item(s)`
+        : "consent refresh before private advice",
+      priority: "High",
+      type: "Client priority",
+    },
+    {
+      id: "meetings",
+      label: `${meetingsToday.length} client meetings are scheduled today; prepare concise summaries before each appointment.`,
+      detail: firstMeeting ? "Open the meeting client profile and review the agenda." : "Review today's calendar.",
+      clientId: firstMeeting?.clientId ?? null,
+      targetPath: firstMeeting ? "/advisor/client" : "/advisor/today",
+      draftAction: "meeting preparation and agenda confirmation",
+      priority: meetingsToday.length > 0 ? "Medium" : "Low",
+      type: "Agenda",
+    },
+    {
+      id: "overdue",
+      label: `${overdue.length} overdue follow-up(s) need attention before new recommendations are issued.`,
+      detail: firstOverdue ? "Open the existing action workspace for the overdue follow-up." : "No overdue client action is available.",
+      clientId: firstOverdue?.clientId ?? null,
+      targetPath: firstOverdue ? "/advisor/actions" : "/advisor/clients",
+      draftAction: firstOverdue ? `${firstOverdue.title} reminder and service update` : "follow-up review",
+      priority: overdue.length > 0 ? "High" : "Low",
+      type: "Follow-up",
+    },
+    {
+      id: "signals",
+      label: highSignals.length > 0
+        ? `${highSignals.length} high-confidence overnight signal(s) can be converted into compliant next-best actions.`
+        : "No high-confidence overnight signals require immediate escalation.",
+      detail: firstSignal ? "Open the related AI profile evidence before action." : "No overnight action needed.",
+      clientId: firstSignal?.clientId ?? null,
+      targetPath: firstSignal ? "/advisor/ai-profile" : "/advisor/today",
+      draftAction: firstSignal?.action ?? "next-best action review",
+      priority: highSignals.length > 0 ? "Medium" : "Low",
+      type: "Signal",
+    },
+    {
+      id: "security",
+      label: `Security reminder: ${lockedCount} consent-gated record(s) stay masked until status is verified.`,
+      detail: "Open Client to see which records remain protected.",
+      clientId: null,
+      targetPath: "/advisor/clients",
+      draftAction: "consent-safe reminder",
+      priority: lockedCount > 0 ? "Medium" : "Low",
+      type: "Guardrail",
+    },
   ];
 }
 
