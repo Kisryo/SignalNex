@@ -6,6 +6,7 @@ import {
   expensesSeed,
   referralOutcomes,
   tasks as taskSeed,
+  cpdModules,
 } from "./data.js";
 import {
   buildMorningBrief,
@@ -39,6 +40,7 @@ import {
   signOutAdvisorFlow,
 } from "./services/advisorFlowService.js";
 import { generateClientProfile } from "./services/openaiClient.js";
+import LearningFeature from "./LearningFeature.jsx";
 
 const advisor = advisors.find((person) => person.role === "Advisor");
 const admin = advisors.find((person) => person.role === "Admin");
@@ -591,6 +593,7 @@ function App() {
               composerMode={composerMode}
               consentLocked={consentLocked}
               cpd={cpd}
+              cpdModules={cpdModules}
               activeAdvisor={activeAdvisor}
               createExpense={createExpense}
               createFollowUp={createFollowUp}
@@ -760,6 +763,7 @@ function AdvisorExperience(props) {
     composerMode,
     consentLocked,
     cpd,
+    cpdModules,
     createExpense,
     createFollowUp,
     createReferral,
@@ -984,19 +988,13 @@ function AdvisorExperience(props) {
 
   if (route === "/advisor/learning") {
     return (
-      <div className="content-grid">
-        <LearningPanel activeAdvisor={activeAdvisor} cpd={cpd} />
-        <section className="panel">
-          <PanelHeader title="Readiness Progress" meta="Advisor development" />
-          <ProgressRows
-            rows={[
-              ["CPD readiness", businessImpact.cpdReadiness],
-              ["Referral SLA hygiene", businessImpact.referralHygiene],
-              ["Follow-up completion", businessImpact.followUpCompletion],
-            ]}
-          />
-        </section>
-      </div>
+      <LearningFeature 
+        activeAdvisor={activeAdvisor} 
+        clientsState={clientsState} 
+        cpdModules={cpdModules} 
+        cpd={cpd} 
+        businessImpact={businessImpact} 
+      />
     );
   }
 
