@@ -15,9 +15,21 @@ export default function LearningFeature({ activeAdvisor, clientsState, cpdModule
   );
   const selectedAdvisor = advisors.find((a) => a.id === selectedAdvisorId) ?? activeAdvisor ?? advisors[0];
 
-  const [completedModules, setCompletedModules] = useState([]);
-  const [completedCpdHours, setCompletedCpdHours] = useState(0);
-  const cpdTarget = 40.0;
+  // Per-advisor completed modules — Alex already completed foundational courses
+  const [completedModulesMap, setCompletedModulesMap] = useState({
+    "adv-alex": [
+      { id: "cpd-mod-found-1", title: "Fundamentals of Policy Underwriting & Suitability", cpdHours: 2.0, completedAt: "2026-05-12T10:00:00Z", matchScore: 100 },
+      { id: "cpd-mod-found-2", title: "KYC Protocols, Audit Trail Tracking, and Consent Rules", cpdHours: 1.5, completedAt: "2026-04-28T09:30:00Z", matchScore: 100 },
+      { id: "cpd-mod-found-3", title: "Introduction to Key-Person Risk & Clinic Partnerships", cpdHours: 1.5, completedAt: "2026-03-15T14:00:00Z", matchScore: 98 },
+      { id: "cpd-mod-found-4", title: "Intro to Cross-Selling & Relational Knowledge Capture", cpdHours: 1.0, completedAt: "2026-02-20T11:00:00Z", matchScore: 95 },
+    ],
+    "adv-maya": [
+      { id: "cpd-mod-found-1", title: "Fundamentals of Policy Underwriting & Suitability", cpdHours: 2.0, completedAt: new Date(Date.now() - 86400000 * 3).toISOString(), matchScore: 100 },
+    ],
+  });
+  const completedModules = completedModulesMap[selectedAdvisorId] || [];
+  const cpdTarget = selectedAdvisor.cpdTarget || 40.0;
+  const completedCpdHours = Math.min(cpdTarget, (selectedAdvisor.cpdHours || 0) + completedModules.reduce((sum, m) => sum + (m.cpdHours ?? 2.0), 0));
 
   const addAudit = (msg) => console.log('Audit:', msg);
 
@@ -28,8 +40,14 @@ export default function LearningFeature({ activeAdvisor, clientsState, cpdModule
   const [quizData, setQuizData] = useState(null);
   const [lessonCompleted, setLessonCompleted] = useState(false);
 
-  const [demoGapsActive, setDemoGapsActive] = useState(false);
-  const [mockGaps, setMockGaps] = useState([]);
+  const alexSeedGaps = [
+    { id: 'gap-1', label: 'Key-person risk structuring for SME clients', keyword: 'key-person SME debt protection', courseId: 'cpd-mod-sme-debt' },
+    { id: 'gap-2', label: 'Young family needs discovery & coverage gaps', keyword: 'young family needs discovery', courseId: 'cpd-mod-elective-young-family' },
+    { id: 'gap-3', label: 'Estate liquidity planning for HNW portfolios', keyword: 'estate liquidity legacy', courseId: 'cpd-mod-hnw-2' },
+  ];
+
+  const [demoGapsActive, setDemoGapsActive] = useState(selectedAdvisorId === 'adv-alex');
+  const [mockGaps, setMockGaps] = useState(selectedAdvisorId === 'adv-alex' ? alexSeedGaps : []);
   const [isDetectingGaps, setIsDetectingGaps] = useState(false);
 
   // Gap detection: triggered when demoGapsActive is toggled on
@@ -57,9 +75,12 @@ export default function LearningFeature({ activeAdvisor, clientsState, cpdModule
       .join(' ');
   }, [demoGapsActive, completedModules, mockGaps]);
 
-  // AI learning path recommendation
+  // AI learning path recommendation — filtered by advisor tier
   useEffect(() => {
-    const uncompletedModules = safeCpdModules.filter(
+    const tierModules = safeCpdModules.filter(
+      (m) => !m.tier || m.tier === selectedAdvisor.experienceLevel
+    );
+    const uncompletedModules = tierModules.filter(
       (m) => !completedModules.some((cm) => cm.id === m.id)
     );
     if (uncompletedModules.length === 0) {
@@ -81,17 +102,26 @@ export default function LearningFeature({ activeAdvisor, clientsState, cpdModule
   const handleSwitchAdvisor = useCallback((id) => {
     setSelectedAdvisorId(id);
     setLessonCompleted(false);
-  }, []);
+    // Reset gaps per advisor — Alex has pre-seeded gaps, others start clean
+    if (id === 'adv-alex') {
+      setMockGaps(alexSeedGaps);
+      setDemoGapsActive(true);
+    } else {
+      setMockGaps([]);
+      setDemoGapsActive(false);
+    }
+  }, [alexSeedGaps]);
 
   const handleQuizSuccess = useCallback(() => {
     if (quizData && quizData.course) {
       const course = quizData.course;
-      setCompletedCpdHours((prev) =>
-        Math.min(cpdTarget, +(prev + (course.cpdHours ?? 2.0)).toFixed(1))
-      );
-      setCompletedModules((prev) => {
-        if (prev.some((m) => m.id === course.id)) return prev;
-        return [...prev, { ...course, completedAt: new Date().toISOString() }];
+      setCompletedModulesMap((prev) => {
+        const advisorMods = prev[selectedAdvisorId] || [];
+        if (advisorMods.some((m) => m.id === course.id)) return prev;
+        return {
+          ...prev,
+          [selectedAdvisorId]: [...advisorMods, { ...course, completedAt: new Date().toISOString() }]
+        };
       });
       addAudit(`Completed CPD module & passed Knowledge Gate: ${course.title}`);
       if (cpdRecommendation.module && course.id === cpdRecommendation.module.id) {
@@ -100,10 +130,16 @@ export default function LearningFeature({ activeAdvisor, clientsState, cpdModule
     }
     setShowQuizModal(false);
     setQuizData(null);
-  }, [quizData, cpdTarget, cpdRecommendation]);
+  }, [quizData, cpdRecommendation, selectedAdvisorId]);
 
   const filteredCpd = safeCpd.filter(
-    (course) => !cpdRecommendation.module || course.id !== cpdRecommendation.module.id
+    (course) => {
+      // Filter out the AI-recommended module (shown separately)
+      if (cpdRecommendation.module && course.id === cpdRecommendation.module.id) return false;
+      // Filter by advisor experience tier
+      if (course.tier && course.tier !== selectedAdvisor.experienceLevel) return false;
+      return true;
+    }
   );
 
   return (
@@ -125,15 +161,27 @@ export default function LearningFeature({ activeAdvisor, clientsState, cpdModule
         </div>
         <div className="cpd-advisor-switcher">
           <span>Demo advisor</span>
-          <div className="mode-switch">
+          <div style={{ display: 'inline-flex', padding: '4px', borderRadius: '12px', background: '#f0f4f2', border: '1px solid #d8e4dc', gap: '4px' }}>
             {advisors.filter((a) => a.role === "Advisor").map((a) => (
               <button
                 key={a.id}
                 className={selectedAdvisorId === a.id ? "active" : ""}
                 onClick={() => handleSwitchAdvisor(a.id)}
                 type="button"
+                style={{
+                  padding: '8px 20px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontWeight: '700',
+                  fontSize: '0.85rem',
+                  transition: 'all 0.25s ease',
+                  ...(selectedAdvisorId === a.id
+                    ? { background: '#135f4e', color: '#fff', boxShadow: '0 4px 12px rgba(19, 95, 78, 0.3)' }
+                    : { background: 'transparent', color: '#56675f' })
+                }}
               >
-                {a.name} <small>({a.experienceLevel})</small>
+                {a.name} <small style={{ opacity: 0.85, fontWeight: 600 }}>({a.experienceLevel})</small>
               </button>
             ))}
           </div>
@@ -192,13 +240,14 @@ export default function LearningFeature({ activeAdvisor, clientsState, cpdModule
               setQuizData({ ...quiz, course: activeCoursePrototype });
               setShowQuizModal(true);
             } else {
-              setCompletedModules((prev) => {
-                if (prev.some((m) => m.id === activeCoursePrototype.id)) return prev;
-                return [...prev, { ...activeCoursePrototype, completedAt: new Date().toISOString() }];
+              setCompletedModulesMap((prev) => {
+                const advisorMods = prev[selectedAdvisorId] || [];
+                if (advisorMods.some((m) => m.id === activeCoursePrototype.id)) return prev;
+                return {
+                  ...prev,
+                  [selectedAdvisorId]: [...advisorMods, { ...activeCoursePrototype, completedAt: new Date().toISOString() }]
+                };
               });
-              setCompletedCpdHours((prev) =>
-                Math.min(cpdTarget, +(prev + (activeCoursePrototype.cpdHours ?? 2.0)).toFixed(1))
-              );
             }
             setActiveCoursePrototype(null);
           }}
@@ -220,7 +269,7 @@ export default function LearningFeature({ activeAdvisor, clientsState, cpdModule
                 <div className="readiness-split" style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                   <div className="readiness-col">
                     <strong>Learning Readiness</strong>
-                    <p>• CPD Progress: {safeImpact.cpdReadiness || 0}% on track</p>
+                    <p>• CPD Progress: {Math.min(100, Math.round((completedCpdHours / cpdTarget) * 100))}% on track</p>
                     <p>• Next milestone: Aug 31</p>
                     <p>• On track for compliance</p>
                   </div>

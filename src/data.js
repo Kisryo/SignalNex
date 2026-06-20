@@ -611,6 +611,7 @@ export const cpdCourses = [
     status: "Recommended",
     format: "Scenario lab",
     outcome: "Document suitability rationale for liquidity-triggered estate reviews.",
+    tier: "Senior",
   },
   {
     id: "cpd-sme",
@@ -621,6 +622,7 @@ export const cpdCourses = [
     status: "Recommended",
     format: "Case clinic",
     outcome: "Map debt, guarantor and key-person exposure into an advice note.",
+    tier: "Senior",
   },
   {
     id: "cpd-medical",
@@ -631,6 +633,18 @@ export const cpdCourses = [
     status: "Completed",
     format: "Microlearning",
     outcome: "Benchmark specialist income and disability scenarios.",
+    tier: "Senior",
+  },
+  {
+    id: "cpd-trust-adv",
+    title: "Cross-Border Trust & Beneficiary Strategy",
+    category: "Wealth Continuity",
+    hours: 3,
+    fitTags: ["legacy", "tax"],
+    status: "Recommended",
+    format: "Case clinic",
+    outcome: "Structure multi-jurisdictional trust frameworks for HNW families.",
+    tier: "Senior",
   },
   {
     id: "cpd-compliance",
@@ -641,6 +655,7 @@ export const cpdCourses = [
     status: "Required",
     format: "Assessment",
     outcome: "Apply PDPA masking, disclosure and audit-log controls.",
+    tier: "Novice",
   },
   {
     id: "cpd-family",
@@ -651,6 +666,29 @@ export const cpdCourses = [
     status: "Recommended",
     format: "Guided roleplay",
     outcome: "Turn life-event signals into affordable staged recommendations.",
+    tier: "Novice",
+  },
+  {
+    id: "cpd-underwriting-101",
+    title: "Policy Underwriting & Suitability Basics",
+    category: "Foundational",
+    hours: 2,
+    fitTags: ["medical", "income", "consent"],
+    status: "Required",
+    format: "Microlearning",
+    outcome: "Apply risk classification and disclosure requirements in client assessments.",
+    tier: "Novice",
+  },
+  {
+    id: "cpd-income-protection",
+    title: "Income Protection & Debt Exposure Reviews",
+    category: "Protection Planning",
+    hours: 1.5,
+    fitTags: ["income", "family", "debt"],
+    status: "Recommended",
+    format: "Guided roleplay",
+    outcome: "Evaluate mortgage-linked coverage and debt-to-income ratios for young professionals.",
+    tier: "Novice",
   },
 ];
 
@@ -786,6 +824,7 @@ export const cpdModules = [
     topic: "underwriting",
     clusterTarget: "Foundational",
     cpdHours: 2.0,
+    tier: "Novice",
     body: "Master the core principles of policy underwriting and suitability assessment, including risk classification, disclosure requirements, and evidence-based advisory frameworks.",
   },
   {
@@ -794,6 +833,7 @@ export const cpdModules = [
     topic: "compliance",
     clusterTarget: "Foundational",
     cpdHours: 1.5,
+    tier: "Novice",
     body: "Learn mandatory KYC procedures, PDPA consent workflows, audit trail documentation, and the regulatory framework governing client data access in Malaysia.",
   },
   {
@@ -802,6 +842,7 @@ export const cpdModules = [
     topic: "key-person",
     clusterTarget: "Foundational",
     cpdHours: 1.5,
+    tier: "Novice",
     body: "Understand key-person dependency risks in SME and professional settings, including clinic buy-in structures, business continuity triggers, and liability separation.",
   },
   {
@@ -810,6 +851,7 @@ export const cpdModules = [
     topic: "cross-selling",
     clusterTarget: "Foundational",
     cpdHours: 1.0,
+    tier: "Novice",
     body: "Develop skills in identifying cross-selling opportunities from client conversations, capturing relational context, and building a structured knowledge memory for each client.",
   },
   // HNW Legacy cluster modules (Pillar B – Cluster B)
@@ -819,6 +861,7 @@ export const cpdModules = [
     topic: "trust",
     clusterTarget: "HNW_Legacy",
     cpdHours: 3.0,
+    tier: "Senior",
     body: "Advanced elective covering multi-jurisdictional trust frameworks, beneficiary nomination strategies, and cross-border estate continuity planning for HNW families.",
   },
   {
@@ -827,6 +870,7 @@ export const cpdModules = [
     topic: "legacy",
     clusterTarget: "HNW_Legacy",
     cpdHours: 2.5,
+    tier: "Senior",
     body: "Plan estate liquidity bridges, succession tax mitigation, and intergenerational asset transfer strategies for high-net-worth legacy guardians.",
   },
   // SME Owner cluster modules (Pillar B – Cluster A)
@@ -836,6 +880,7 @@ export const cpdModules = [
     topic: "tax",
     clusterTarget: "SME_Owner",
     cpdHours: 2.0,
+    tier: "Senior",
     body: "Analyse corporate tax thresholds, debt-covenant exposure, and business continuity triggers that impact SME owners and their guarantor networks.",
   },
   {
@@ -844,6 +889,7 @@ export const cpdModules = [
     topic: "key-person",
     clusterTarget: "SME_Owner",
     cpdHours: 2.0,
+    tier: "Senior",
     body: "Design key-person insurance frameworks tied to loan facilities, fleet financing, and guarantor exposure mapping for small and medium enterprises.",
   },
   // Mass Affluent cluster modules (Pillar B – Cluster C)
@@ -853,6 +899,7 @@ export const cpdModules = [
     topic: "income",
     clusterTarget: "Mass_Affluent",
     cpdHours: 1.5,
+    tier: "Novice",
     body: "Evaluate income protection needs, mortgage-linked coverage, and debt-to-income ratios for mass affluent professionals and young families.",
   },
   {
@@ -861,6 +908,7 @@ export const cpdModules = [
     topic: "medical",
     clusterTarget: "Mass_Affluent",
     cpdHours: 1.5,
+    tier: "Novice",
     body: "Review medical panel access, dependent coverage options, and family protection starter plans for the mass affluent segment.",
   },
   // Gap-filling modules (Pillar C – triggered by keyword detection)
@@ -870,6 +918,7 @@ export const cpdModules = [
     topic: "tax threshold",
     clusterTarget: "Gap_Fill",
     cpdHours: 1.0,
+    tier: "Senior",
     body: "Intensive micro-lesson on personal and corporate tax thresholds, chargeable income tiers, and planning techniques for clients approaching bracket boundaries.",
   },
   {
@@ -878,6 +927,7 @@ export const cpdModules = [
     topic: "trust",
     clusterTarget: "Gap_Fill",
     cpdHours: 1.0,
+    tier: "Senior",
     body: "Rapid gap-filling lesson on trust fundamentals, testamentary vs. living trusts, and suitability assessment for client wealth tiers.",
   },
   {
@@ -886,6 +936,7 @@ export const cpdModules = [
     topic: "lapse",
     clusterTarget: "Gap_Fill",
     cpdHours: 1.0,
+    tier: "Novice",
     body: "Understand lapse risk triggers, grace period rules, reinstatement protocols, and compliant outreach strategies for at-risk policies.",
   },
 ];
