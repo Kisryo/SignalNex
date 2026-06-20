@@ -1,86 +1,56 @@
-# Supabase Setup
+# AdvisorFlow AI Supabase Setup
 
-This folder defines the backend data model for the simplified AdvisorFlow AI
-MVP:
+1. Create a Supabase project.
+2. Run `supabase/schema.sql` in the SQL editor.
+3. Run `supabase/seed.sql` in the SQL editor.
+4. Create Auth users for these seeded profile emails, using any secure password you want:
+   - `alex.lim@advisorflow.local`
+   - `maya.singh@advisorflow.local`
+   - `nadia.wong@advisorflow.local`
+5. Run `supabase/seed.sql` again after the Auth users exist. The final `update profiles ... from auth.users` statement links each Auth user to the correct profile through `profiles.auth_user_id`.
+6. Copy `.env.example` to `.env.local`, then fill in `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`.
+7. Run `supabase/verify-setup.sql` to confirm the table counts and Auth profile links.
 
-> Existing client data -> priority signals -> suggested actions/messages -> CPD
-> and admin oversight.
+The app requires a linked Supabase Auth user when Supabase is configured. Local fallback is disabled unless `VITE_ALLOW_LOCAL_FALLBACK=true` and `VITE_LOCAL_FALLBACK_PASSWORD` are set for offline development.
 
-## Run Order
+Client Relationship Intelligence fields live on `clients` so the app can calculate VIP/Gold/Silver/Bronze locally and deterministically:
 
-1. Open your Supabase project.
-2. Go to **SQL Editor**.
-3. Run `schema.sql`.
-4. Run `seed.sql`.
-5. Test the automation views:
+- Value inputs: `policy_value`, `opportunity_value`, `referral_potential`, `engagement_urgency`, `care_urgency`, `relationship_importance`
+- Relationship profile: `personality`, `interests`, `preferred_channel`, `preferred_tone`, `birthday`, `life_event`, `relationship_notes`
+- Gift guardrails: VIP capped at RM100, Gold capped at RM50, Silver/Bronze receive care-note suggestions only.
+- Telegram delivery: `telegram_opt_in` must be true and `telegram_chat_id` must be set before messages can be sent.
 
-```sql
-select *
-from client_priority_queue
-order by priority_score desc;
-```
+Admin screens are read-only visual dashboards. Advisors own follow-up, consent refresh requests, referrals, and task creation from the app. Consent-locked clients remain masked and recommendation/gift/schedule outputs are blocked until consent is verified.
 
-```sql
-select *
-from daily_action_suggestions
-order by priority_score desc, event_date asc;
-```
+Telegram setup:
 
-## Core Tables
+1. Create a bot with Telegram `@BotFather` and copy the bot token.
+2. Set Supabase Edge Function secrets:
 
-- `advisors` - agents, admins, team leads
-- `clients` - existing client records and safe relationship preferences
-- `policies` - plan value, renewal dates, premium due dates, status
-- `client_events` - birthdays, renewals, payment risks, consent reviews, follow-ups
-- `tasks` - advisor follow-ups and commitments
-- `generated_messages` - WhatsApp/email/call-script drafts
-- `learning_content` - existing training videos or micro-lessons
-- `cpd_log` - completed CPD records
-- `audit_log` - action and compliance trail
+   ```bash
+   supabase secrets set TELEGRAM_BOT_TOKEN=your_bot_token
+   ```
 
-## Automation Views
+3. Deploy the function:
 
-### `client_priority_queue`
+   ```bash
+   supabase functions deploy send-telegram
+   ```
 
-Ranks clients using:
+4. Ask each client to start the bot in Telegram first. Telegram bots cannot message a user until the user has opened or started the bot.
+5. Store the client's chat ID:
 
-- premium/business impact
-- high-value plans
-- renewal or premium due soon
-- payment/lapse risk
-- birthday touchpoints
-- overdue follow-ups
-- consent/compliance issues
-- relationship touchpoint overdue
+   ```sql
+   update clients
+   set telegram_chat_id = 'CLIENT_CHAT_ID',
+       telegram_opt_in = true
+   where id = 'client-tan';
+   ```
 
-This is the query your Advisor Dashboard can use for "who should I focus on
-first today?"
+Recommended Auth test accounts:
 
-### `daily_action_suggestions`
+- `alex.lim@advisorflow.local` - Advisor
+- `maya.singh@advisorflow.local` - Advisor
+- `nadia.wong@advisorflow.local` - Admin
 
-Turns open client events into:
-
-- suggested action
-- message type
-- draft message
-- priority reason
-
-This is the query your Message Assistant can use for birthday messages, renewal
-reminders, payment/lapse reminders, document requests, and consent-safe blocks.
-
-## Frontend Mapping
-
-- Advisor Today: `client_priority_queue`
-- Smart Message Assistant: `daily_action_suggestions`
-- Follow-Up Manager: `tasks`
-- Learning: `learning_content` + `cpd_log`
-- Admin: `audit_log`, `tasks`, `client_events`, `generated_messages`
-
-## Important Product Wording
-
-Do not pitch this as "prioritise rich clients only."
-
-Pitch it as:
-
-> AdvisorFlow prioritises clients based on urgency, service risk, relationship
-> moments, compliance needs, and business impact.
+Use the same password you choose when creating the Supabase Auth users.

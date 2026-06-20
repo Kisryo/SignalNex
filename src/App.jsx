@@ -25,6 +25,7 @@ import {
 } from "./engines.js";
 import { hasSupabaseConfig } from "./supabaseClient.js";
 import { loadAdvisorTodayData } from "./supabaseData.js";
+import { generateClientSuggestions, detectKnowledgeGaps, generateSmartLearningPath } from "./openaiService.js";
 
 const advisor = advisors.find((person) => person.role === "Advisor");
 
@@ -172,13 +173,18 @@ function App() {
   const [completedModules, setCompletedModules] = useState([]);
   const [activeCoursePrototype, setActiveCoursePrototype] = useState(null);
 
-  const mockGaps = useMemo(() => [
-    { id: "gap-1", courseId: "cpd-legacy", label: '"Trust structuring" mentioned in 3 client meetings this week', keyword: "trust structuring" },
-    { id: "gap-2", courseId: "cpd-sme", label: '"Tax threshold" flagged in Ahmad\'s portfolio review notes', keyword: "tax threshold" },
-    { id: "gap-3", courseId: "cpd-family", label: '"Lapse risk" detected in recent activity', keyword: "lapse risk" },
-    { id: "gap-4", courseId: "cpd-medical", label: '"Medical specialist needs" queried by new prospect', keyword: "medical specialist" },
-    { id: "gap-5", courseId: "cpd-compliance", label: '"Cross-border assets" appeared in 2 onboarding forms', keyword: "cross-border" },
-  ], []);
+  const [mockGaps, setMockGaps] = useState([]);
+  const [isDetectingGaps, setIsDetectingGaps] = useState(false);
+
+  useEffect(() => {
+    if (demoGapsActive && mockGaps.length === 0 && !isDetectingGaps) {
+      setIsDetectingGaps(true);
+      detectKnowledgeGaps(clientsState, cpdModules).then(gaps => {
+        setMockGaps(gaps);
+        setIsDetectingGaps(false);
+      });
+    }
+  }, [demoGapsActive, clientsState]);
 
   const cpdRecentNotes = useMemo(() => {
     if (!demoGapsActive) return "";
@@ -191,10 +197,16 @@ function App() {
   const selectedAdvisor = advisors.find((a) => a.id === selectedAdvisorId) ?? advisors[0];
   const cpdTarget = 40.0;
 
-  const cpdRecommendation = useMemo(
-    () => recommendLearningModule(selectedAdvisorId, advisors, clientsState, cpdModules, cpdRecentNotes),
-    [selectedAdvisorId, clientsState, cpdRecentNotes]
-  );
+  const [cpdRecommendation, setCpdRecommendation] = useState({});
+  const [isGeneratingLearningPath, setIsGeneratingLearningPath] = useState(false);
+
+  useEffect(() => {
+    setIsGeneratingLearningPath(true);
+    generateSmartLearningPath(selectedAdvisor, clientsState, cpdModules, cpdRecentNotes).then(rec => {
+      setCpdRecommendation(rec);
+      setIsGeneratingLearningPath(false);
+    });
+  }, [selectedAdvisor, clientsState, cpdRecentNotes]);
 
   const [showQuizModal, setShowQuizModal] = useState(false);
   const [quizData, setQuizData] = useState(null);
@@ -257,10 +269,20 @@ function App() {
     () => generateClientBrief(activeClient, tasks, overnightSignals, []),
     [activeClient, tasks]
   );
-  const nextActions = useMemo(
-    () => generateNextBestActions(activeClient, tasks, [], complianceQueue),
-    [activeClient, tasks]
-  );
+  const [nextActions, setNextActions] = useState([]);
+  const [isGeneratingActions, setIsGeneratingActions] = useState(false);
+
+  useEffect(() => {
+    if (activeClient) {
+      setIsGeneratingActions(true);
+      generateClientSuggestions(activeClient, clientBrief?.taskSummary || "").then(actions => {
+        setNextActions(actions);
+        setIsGeneratingActions(false);
+      });
+    } else {
+      setNextActions([]);
+    }
+  }, [activeClient, clientBrief]);
   const generatedDraft = useMemo(
     () => {
       const draftAction =
@@ -462,6 +484,9 @@ function App() {
             demoGapsActive={demoGapsActive}
             setDemoGapsActive={setDemoGapsActive}
             completedModules={completedModules}
+            isGeneratingActions={isGeneratingActions}
+            isDetectingGaps={isDetectingGaps}
+            isGeneratingLearningPath={isGeneratingLearningPath}
             setCompletedModules={setCompletedModules}
             activeCoursePrototype={activeCoursePrototype}
             setActiveCoursePrototype={setActiveCoursePrototype}
@@ -584,6 +609,9 @@ function AdvisorExperience(props) {
     setCompletedCpdHours,
     setShowQuizModal,
     setQuizData,
+    isGeneratingActions,
+    isDetectingGaps,
+    isGeneratingLearningPath,
   } = props;
 
   const clientQueue = (
@@ -647,6 +675,7 @@ function AdvisorExperience(props) {
             clientBrief={clientBrief}
             complianceRisk={complianceRisk}
             nextActions={nextActions}
+            isGeneratingActions={isGeneratingActions}
           />
         </div>
       </div>
@@ -717,16 +746,24 @@ function AdvisorExperience(props) {
             <small>Last scanned: just now</small>
           </div>
           <ul className="gaps-list">
-            {mockGaps
-              .filter(gap => !completedModules.some((m) => m.id === gap.courseId))
-              .slice(0, 3)
-              .map((gap) => (
-                <li key={gap.id}>
-                  • <span>{gap.label}</span>
-                </li>
-              ))}
-            {mockGaps.filter(gap => !completedModules.some((m) => m.id === gap.courseId)).length === 0 && (
-              <li className="gap-completed">✅ All detected gaps have been addressed!</li>
+            {isDetectingGaps ? (
+              <li style={{ fontStyle: 'italic', color: 'var(--text-secondary)' }}>
+                🔄 AI is analyzing your notes and detecting knowledge gaps...
+              </li>
+            ) : (
+              <>
+                {mockGaps
+                  .filter(gap => !completedModules.some((m) => m.id === gap.courseId))
+                  .slice(0, 3)
+                  .map((gap) => (
+                    <li key={gap.id}>
+                      • <span>{gap.label}</span>
+                    </li>
+                  ))}
+                {mockGaps.filter(gap => !completedModules.some((m) => m.id === gap.courseId)).length === 0 && (
+                  <li className="gap-completed">✅ All detected gaps have been addressed!</li>
+                )}
+              </>
             )}
           </ul>
           <div className="gaps-footer" style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -762,6 +799,7 @@ function AdvisorExperience(props) {
                 completedModules={completedModules} 
                 onStartCourse={setActiveCoursePrototype} 
                 cpdRecommendation={cpdRecommendation}
+                isGeneratingLearningPath={isGeneratingLearningPath}
               />
               <div className="cpd-right-stack">
                 <CpdProgressGauge
@@ -951,7 +989,7 @@ function ClientMomentsPanel({ suggestions, meetings, clientsState }) {
   );
 }
 
-function CopilotPanel({ activeClient, clientBrief, complianceRisk, nextActions }) {
+function CopilotPanel({ activeClient, clientBrief, complianceRisk, nextActions, isGeneratingActions }) {
   const locked = activeClient.consentStatus !== "Verified";
 
   return (
@@ -974,13 +1012,19 @@ function CopilotPanel({ activeClient, clientBrief, complianceRisk, nextActions }
             <InsightList title="Evidence Used" items={clientBrief.evidence} />
           </div>
           <div className="next-actions">
-            {nextActions.map((action) => (
-              <article key={action.title}>
-                <span>{action.owner} - {action.priority}</span>
-                <strong>{action.title}</strong>
-                <p>{action.reason}</p>
-              </article>
-            ))}
+            {isGeneratingActions ? (
+              <div style={{ fontStyle: 'italic', color: 'var(--text-secondary)', padding: '10px' }}>
+                🔄 AI is analyzing client profile to suggest actions...
+              </div>
+            ) : (
+              nextActions.map((action) => (
+                <article key={action.title}>
+                  <span>{action.owner} - {action.priority}</span>
+                  <strong>{action.title}</strong>
+                  <p>{action.reason}</p>
+                </article>
+              ))
+            )}
           </div>
           <div className="data-used">
             {["Client context", "Open tasks", "Client signals", "Message draft", "Consent guardrail"].map((item) => (
@@ -1253,14 +1297,18 @@ function InlineCoursePlayer({ course, onClose, onComplete }) {
   );
 }
 
-function LearningPanel({ cpd, completedModules, onStartCourse, cpdRecommendation }) {
+function LearningPanel({ cpd, completedModules, onStartCourse, cpdRecommendation, isGeneratingLearningPath }) {
   const recommendedMod = cpdRecommendation?.module;
   
   return (
     <section className="panel portfolio-courses-panel">
       <PanelHeader title="Smart Learning Path" meta="Portfolio-Matched Courses" />
       <div className="stack">
-        {recommendedMod && !completedModules.some(m => m.id === recommendedMod.id) && (
+        {isGeneratingLearningPath ? (
+          <div style={{ fontStyle: 'italic', color: 'var(--text-secondary)', padding: '10px' }}>
+            🔄 AI is analyzing your portfolio to build a learning path...
+          </div>
+        ) : recommendedMod && !completedModules.some(m => m.id === recommendedMod.id) && (
           <article className="course-card list-row featured-course" style={{ borderLeft: '4px solid var(--primary-color)', backgroundColor: 'var(--surface-color)' }}>
             <div className="course-card-content">
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
@@ -1271,9 +1319,9 @@ function LearningPanel({ cpd, completedModules, onStartCourse, cpdRecommendation
                 <span>🎯 Portfolio Match: 100%</span>
                 <span>⏱️ {recommendedMod.cpdHours ?? 2.0} CPD hrs</span>
               </div>
-              <div className="course-card-status" style={{ marginTop: '8px', padding: '8px', backgroundColor: 'var(--bg-color)', borderRadius: '4px', fontSize: '0.85rem' }}>
-                <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '2px', fontWeight: '500' }}>Strategic Reasoning:</span>
-                <span style={{ fontStyle: 'italic' }}>{cpdRecommendation.strategicReasoning}</span>
+              <div className="course-card-status" style={{ flexDirection: 'column', alignItems: 'flex-start', marginTop: '8px', padding: '8px', backgroundColor: 'var(--bg-color)', borderRadius: '4px', fontSize: '0.85rem' }}>
+                <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '4px', fontWeight: '500' }}>Strategic Reasoning:</span>
+                <span style={{ fontStyle: 'italic', lineHeight: '1.4' }}>{cpdRecommendation.strategicReasoning}</span>
               </div>
             </div>
             <button 
