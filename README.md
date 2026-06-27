@@ -182,3 +182,19 @@ The runtime application uses OpenAI GPT-4o-mini for three specific features: Sma
 ## License
 
 This project was built for the AAG x ASG ImagineHack 2026 hackathon.
+
+## 💡 Judge Feedback & Iterative Roadmap
+
+Following our presentation, we received highly constructive feedback from the judging panel. We actively use this feedback to drive the next iteration of our architecture.
+
+> **Judge's Comment:** *"Allows consent ability. The prioritising of clients can be tricky as there may be missing elements of relationship or mannerism of the client. Good idea. Excellent and smooth presentation."*
+
+### Our Engineering Response to the "Mannerism" Challenge
+The judge correctly identified a major flaw in traditional CRM scoring: it ignores human nuance. If an AI only prioritizes clients based on premium due dates or portfolio size, it destroys the advisor-client relationship.
+
+To directly solve this, our next iteration introduces the **Active Empathy Pipeline & Behavioral Matrix**:
+1. **Capturing Mannerisms:** Instead of rigid data fields, our web-speech ingestion tool captures raw, unstructured conversational notes. The AI extracts specific "soft signals" (e.g., family protective instincts, analytical tendencies, or recent emotional life events).
+2. **Behavioral Prioritization:** The priority scoring engine does not just look at revenue. It injects a massive priority boost for **Empathy Triggers** (e.g., a client mentioning a minor accident or a child going to college). 
+3. **The Action Composer:** The system categorizes the client's mannerisms into Archetypes (e.g., "Relational Guardian" vs. "Analytical Mind") to ensure the generated next-best action matches the client's exact psychological communication style. 
+
+By digitizing "soft skills," the system ensures the human element remains the primary driver of client prioritization.
